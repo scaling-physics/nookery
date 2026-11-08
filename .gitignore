@@ -1,0 +1,17 @@
+target
+**/*.rs.bk
+node_modules
+.DS_Store
+.claude/
+
+# Never commit kitchen data or real receipts/photos
+*.db
+*.db-wal
+*.db-shm
+private/
+fixtures/private/
+
+# Generated
+src-tauri/gen/schemas/
+ui/build
+ui/.svelte-kit

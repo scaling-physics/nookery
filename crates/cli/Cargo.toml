@@ -1,0 +1,18 @@
+[package]
+name = "nookery-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "nookery"
+path = "src/main.rs"
+
+[dependencies]
+nookery-core.workspace = true
+nookery-store.workspace = true
+chrono.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

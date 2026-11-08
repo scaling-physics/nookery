@@ -1,0 +1,17 @@
+[package]
+name = "nookery-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nookery-core.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

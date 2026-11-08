@@ -1,0 +1,74 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+/* Colour tokens: warm kitchen neutrals, sage for fresh, saffron for soon,
+   terracotta for expired. Dark mode follows the system. */
+:root {
+	--bg: #f6f3ec;
+	--surface: #fffdf8;
+	--surface-2: #efe9dd;
+	--line: #e2dacb;
+	--ink: #23201b;
+	--ink-2: #6b6458;
+	--ink-3: #9a9284;
+	--sage: #4f7a5a;
+	--sage-bg: #e3ecdf;
+	--saffron: #a76a0c;
+	--saffron-bg: #f7e8c8;
+	--terracotta: #b04a2f;
+	--terracotta-bg: #f5ddd3;
+	--ice: #3d6f8f;
+	--ice-bg: #dfeaf1;
+	--focus: #4f7a5a;
+	color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #151412;
+		--surface: #1e1c19;
+		--surface-2: #282521;
+		--line: #34302a;
+		--ink: #efe9de;
+		--ink-2: #b2aa9c;
+		--ink-3: #7d766a;
+		--sage: #8fbf98;
+		--sage-bg: #22302558;
+		--saffron: #e6b45a;
+		--saffron-bg: #3a2e1660;
+		--terracotta: #ea8a6e;
+		--terracotta-bg: #3d211a70;
+		--ice: #8fc0de;
+		--ice-bg: #1d2c3570;
+		--focus: #8fbf98;
+		color-scheme: dark;
+	}
+}
+
+html,
+body {
+	background: var(--bg);
+	color: var(--ink);
+	font-family: 'Inter Variable', system-ui, sans-serif;
+	font-feature-settings: 'cv11', 'ss01';
+	-webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+}
+
+input,
+select,
+button {
+	font: inherit;
+	color: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	* {
+		transition: none !important;
+		animation: none !important;
+	}
+}
