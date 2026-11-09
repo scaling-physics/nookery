@@ -1,0 +1,15 @@
+[package]
+name = "nookery-vision"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+base64 = "0.23.1"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+nookery-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ureq = { version = "3.5.1", features = ["json"] }

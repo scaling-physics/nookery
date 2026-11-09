@@ -1,0 +1,23 @@
+# SYNTHETIC: invented for tests, not a real receipt
+Netto Marken-Discount
+Filiale 1234
+Musterweg 7
+12345 Teststadt
+
+HAFERFLOCKEN 500G            0,89 B
+EIER 10 STK                  2,29 B
+3 x 0,69
+TOMATEN PASSIERT             2,07 B
+1,036 kg x 1,99 EUR/kg
+AEPFEL                       2,06 B
+SPRUDEL 1,5L                 0,19 A
+PFAND EW                     0,25 A
+SCHOKOLADE                   1,29 B
+Preisvorteil                -0,20
+PFANDBON                    -0,25
+
+SUMME                        8,59
+KARTE                        8,59
+Netto    Steuer    Brutto
+B 7%     7,63      0,53     8,16
+08.11.26 17:48

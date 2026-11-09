@@ -57,3 +57,25 @@ export function frozenLabel(frozenOn: string, today: Date = new Date()): string 
 	if (days < 28) return `Frozen ${days} days ago`;
 	return `Frozen ${Math.round(days / 7)} weeks ago`;
 }
+
+/** Euro cents as printed on German receipts: 977 -> "9,77 €", -25 -> "-0,25 €". */
+export function formatCents(cents: number): string {
+	const abs = Math.abs(cents);
+	const body = `${Math.floor(abs / 100)},${String(abs % 100).padStart(2, '0')}`;
+	return `${cents < 0 ? '-' : ''}${body} €`;
+}
+
+/** A difference with an explicit sign: 5 -> "+0,05 €", -5 -> "-0,05 €". */
+export function formatDiff(cents: number): string {
+	return cents > 0 ? `+${formatCents(cents)}` : formatCents(cents);
+}
+
+/** Which input an import error names: "qty:3" -> { field: 'qty', line: 3 }. */
+export function parseFieldError(detail: string): { field: string; line: number | null } {
+	const [field, n] = detail.split(':');
+	return { field, line: n === undefined || n === '' ? null : Number(n) };
+}
+
+/** The message for `cloud_sign_in`; `ErrorBanner` adds the Settings link. */
+export const CLOUD_SIGN_IN =
+	'The cloud model needs an Ollama account. In Terminal run “ollama signin”, or switch to “On this Mac only” in Settings.';

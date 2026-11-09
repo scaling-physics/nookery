@@ -1,0 +1,20 @@
+# SYNTHETIC: invented for tests, not a real receipt
+denn’s Biomarkt
+Denree Beispiel GmbH
+Ringstr. 3
+10115 Berlin
+Tel 030 000000
+
+BIO TOFU NATUR              2,49 B
+BIO EIER 6ER                2,98 B
+   2 Stk x   1,49
+BIO BANANEN                 1,67 B
+   0,560 kg x   2,99 EUR/kg
+BIO APFELSAFT 1L            1,99 B
+MEHRWEG PFAND               0,15 A
+COUPON                     -0,50
+LEERGUT                    -0,15
+
+SUMME EUR                   8,63
+EC-CASH                     8,63
+08.11.26 09:05

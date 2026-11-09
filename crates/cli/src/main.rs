@@ -1,6 +1,11 @@
 //! `nookery`: the kitchen ledger from the terminal. Shares the app's database
 //! (`$NOOKERY_DATA_DIR` or the OS app-data folder; `--data` overrides).
 
+mod photo;
+mod receipt;
+mod recipes;
+mod settings;
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
@@ -8,7 +13,7 @@ use std::time::Instant;
 use chrono::{Local, NaiveDate, Utc};
 use clap::{Parser, Subcommand};
 use nookery_core::{parse_date, use_first, Event, EventKind, Location, Lot, Qty, Source, Status};
-use nookery_store::{default_data_dir, Store};
+use nookery_store::{default_data_dir, Store, SETTING_PHOTOS_AI, SETTING_RECIPES_AI};
 
 #[derive(Parser)]
 #[command(
@@ -73,6 +78,16 @@ enum Cmd {
     },
     /// Every event, or one lot's history.
     Log { id: Option<String> },
+    /// Read a receipt (text file or -), and with --import add its lots.
+    Receipt(receipt::ReceiptArgs),
+    /// Scan a photo of the fridge, freezer or pantry with the local vision model.
+    Photo(photo::PhotoArgs),
+    /// Recipe ideas from what's in stock (--cook N writes the full recipe).
+    Recipes(recipes::RecipesArgs),
+    /// List, add, edit, remove and order the saved "what I want" templates.
+    Templates(recipes::TemplatesArgs),
+    /// Where the AI runs (this Mac or the cloud) and which cloud model.
+    Settings(settings::SettingsArgs),
 }
 
 fn main() -> ExitCode {
@@ -93,7 +108,7 @@ fn run(cli: Cli) -> Result<(), String> {
     let opened = t0.elapsed();
     let today = Local::now().date_naive();
     let t1 = Instant::now();
-    execute(&mut store, cli.cmd, today).map_err(|e| e.to_string())?;
+    execute(&mut store, cli.cmd, today, cli.time).map_err(|e| e.to_string())?;
     if cli.time {
         eprintln!(
             "open + replay {} events: {:.2} ms · command: {:.2} ms",
@@ -109,6 +124,7 @@ fn execute(
     store: &mut Store,
     cmd: Cmd,
     today: NaiveDate,
+    time: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let now = Utc::now();
     let one =
@@ -139,6 +155,7 @@ fn execute(
                     store,
                     line: None,
                     price_cents,
+                    receipt: None,
                 },
                 None => Source::Manual,
             };
@@ -181,6 +198,46 @@ fn execute(
             let location = store.inventory().get(lot).expect("found").location;
             one(store, &id, EventKind::Seen { location, left })?
         }
+        Cmd::Receipt(args) => receipt::run(store, args, today, time)?,
+        Cmd::Photo(args) => {
+            let mode = args.ai.mode(store.ai_mode(SETTING_PHOTOS_AI)?);
+            let chosen = nookery_vision::Chosen::for_mode(mode, &store.cloud_model()?);
+            photo::run(
+                store,
+                args,
+                &chosen,
+                &|| settings::Who {
+                    by: chosen.answered_by(),
+                    cloud: chosen.used_cloud(),
+                },
+                today,
+                time,
+                photo::stderr_is_terminal(),
+            )?
+        }
+        Cmd::Recipes(args) => {
+            let mode = args.ai.mode(store.ai_mode(SETTING_RECIPES_AI)?);
+            let chosen = nookery_recipes::ChosenText::for_mode(mode, &store.cloud_model()?);
+            recipes::run_recipes(
+                store,
+                args,
+                &chosen,
+                &|| settings::Who {
+                    by: chosen.answered_by(),
+                    cloud: chosen.used_cloud(),
+                },
+                today,
+                &mut std::io::stdout(),
+            )?
+        }
+        Cmd::Templates(args) => recipes::run_templates(store, args, &mut std::io::stdout())?,
+        Cmd::Settings(args) => {
+            let cloud = nookery_recipes::ChosenText::for_mode(
+                nookery_core::AiMode::Cloud,
+                &store.cloud_model()?,
+            );
+            settings::run(store, args, &cloud, &mut std::io::stdout())?
+        }
         Cmd::Log { id } => {
             let events = match id {
                 Some(id) => store.lot_events(store.find_lot(&id)?)?,
@@ -199,7 +256,7 @@ fn execute(
     Ok(())
 }
 
-fn line(l: &Lot, s: Status) -> String {
+pub(crate) fn line(l: &Lot, s: Status) -> String {
     let status = match (l.gone, s) {
         (Some(g), _) => format!("{g:?}").to_lowercase(),
         (None, Status::Expired(d)) => format!("expired {d}d ago"),
@@ -304,7 +361,7 @@ mod tests {
             store: Some("Lidl".into()),
             price: Some("2.29".into()),
         };
-        execute(&mut store, add, today).unwrap();
+        execute(&mut store, add, today, false).unwrap();
         let id = store.inventory().all()[0].id.short();
         execute(
             &mut store,
@@ -313,6 +370,7 @@ mod tests {
                 qty: Some(Qty::pieces(2)),
             },
             today,
+            false,
         )
         .unwrap();
         let lot = &store.inventory().all()[0];
@@ -321,6 +379,7 @@ mod tests {
             lot.source,
             Source::Receipt {
                 price_cents: Some(229),
+                receipt: None,
                 ..
             }
         ));
@@ -331,6 +390,7 @@ mod tests {
                 all: false,
             },
             today,
+            false,
         )
         .unwrap();
     }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/store", "crates/cli", "src-tauri"]
+members = ["crates/core", "crates/store", "crates/receipt", "crates/vision", "crates/recipes", "crates/cli", "src-tauri"]
 
 [workspace.package]
 edition = "2021"
@@ -19,6 +19,9 @@ clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 nookery-core = { path = "crates/core" }
 nookery-store = { path = "crates/store" }
+nookery-receipt = { path = "crates/receipt" }
+nookery-vision = { path = "crates/vision" }
+nookery-recipes = { path = "crates/recipes" }
 
 [profile.release]
 lto = "thin"

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { frozenLabel, itemName, statusLabel, urgent } from './format.js';
+import {
+	formatCents,
+	formatDiff,
+	frozenLabel,
+	itemName,
+	parseFieldError,
+	statusLabel,
+	urgent
+} from './format.js';
 import type { LotView } from './bindings.js';
 
 describe('statusLabel', () => {
@@ -39,5 +47,27 @@ describe('frozenLabel', () => {
 		expect(frozenLabel('2026-11-07', today)).toBe('Frozen yesterday');
 		expect(frozenLabel('2026-10-27', today)).toBe('Frozen 12 days ago');
 		expect(frozenLabel('2026-09-29', today)).toBe('Frozen 6 weeks ago');
+	});
+});
+
+describe('formatCents', () => {
+	it('prints euros with a decimal comma and keeps the sign', () => {
+		expect(formatCents(977)).toBe('9,77 €');
+		expect(formatCents(5)).toBe('0,05 €');
+		expect(formatCents(0)).toBe('0,00 €');
+		expect(formatCents(-25)).toBe('-0,25 €');
+		expect(formatCents(123456)).toBe('1234,56 €');
+	});
+
+	it('shows an explicit plus for positive differences', () => {
+		expect(formatDiff(5)).toBe('+0,05 €');
+		expect(formatDiff(-5)).toBe('-0,05 €');
+	});
+});
+
+describe('parseFieldError', () => {
+	it('splits a field and a line number', () => {
+		expect(parseFieldError('qty:3')).toEqual({ field: 'qty', line: 3 });
+		expect(parseFieldError('total')).toEqual({ field: 'total', line: null });
 	});
 });

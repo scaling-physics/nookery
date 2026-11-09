@@ -1,0 +1,28 @@
+# SYNTHETIC: invented for tests, not a real receipt
+REWE Markt GmbH
+Beispielstrasse 12
+50667 Koeln
+Tel.: 0221 000000
+UID Nr.: DE000000000
+--------------------------------
+BIO H-MILCH 1,5%             1,19 B
+JOGHURT NATUR                1,98 B
+   2 Stk x      0,99
+BANANEN                      1,53 B
+   0,512 kg x   2,99 EUR/kg
+MINERALWASSER 1,5L           0,79 A
+PFAND EINWEG                 0,25 A
+KAESE GOUDA                  2,49 B
+Sofort-Rabatt               -0,50
+BROT DINKEL                  2,29 B
+LEERGUTBON                  -0,25
+--------------------------------
+SUMME                EUR     9,77
+Geg. BAR                    20,00
+Rueckgeld                   10,23
+Steuer %     Netto    Steuer   Brutto
+A 19%         0,87      0,17     1,04
+B  7%         7,67      0,54     8,21
+08.11.26 14:32
+TSE-Signatur: 0000000000
+Vielen Dank fuer Ihren Einkauf!

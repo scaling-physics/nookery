@@ -1,6 +1,11 @@
 //! The Tauri app: thin commands over `nookery-store`. All rules live in the
 //! crates; this file only converts between them and the UI's types.
 
+mod photo;
+mod receipt;
+mod recipes;
+mod settings;
+
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -19,6 +24,10 @@ pub struct AppState {
     store: Mutex<Store>,
     /// How long opening the database and replaying the ledger took at start.
     open_ms: f64,
+    /// The last photo scan's plan, until it is applied or replaced.
+    last_scan: Mutex<Option<photo::StoredScan>>,
+    /// The last recipe suggestions, until replaced.
+    last_suggestions: Mutex<Option<recipes::StoredSuggestions>>,
 }
 
 /// What the UI is told when a command fails.
@@ -28,6 +37,19 @@ pub enum CommandError {
     /// A field the user typed can't be read (which field).
     BadInput(String),
     NotFound,
+    /// The vision model isn't reachable (detail: its url): Ollama not running.
+    VisionUnavailable(String),
+    /// The vision model isn't installed (detail: its name).
+    VisionModelMissing(String),
+    /// The recipe model isn't reachable (detail: its url): Ollama not running.
+    RecipeModelUnavailable(String),
+    /// The recipe model isn't installed (detail: its name).
+    RecipeModelMissing(String),
+    /// A cloud model was chosen but Ollama isn't signed in
+    /// (`ollama signin`).
+    CloudSignIn,
+    /// This receipt is already in the ledger.
+    AlreadyImported,
     Internal,
 }
 
@@ -35,6 +57,7 @@ impl From<StoreError> for CommandError {
     fn from(e: StoreError) -> Self {
         match e {
             StoreError::NoMatch(_) | StoreError::Ambiguous(_) => Self::NotFound,
+            StoreError::DuplicateReceipt(_) => Self::AlreadyImported,
             other => {
                 eprintln!("nookery: {other}");
                 Self::Internal
@@ -186,6 +209,7 @@ fn add_item(state: State<'_, AppState>, input: AddInput) -> Result<LotView, Comm
             store: s.into(),
             line: None,
             price_cents: None,
+            receipt: None,
         },
     };
     let lot = LotId::new();
@@ -250,7 +274,24 @@ fn lot_action(
 }
 
 pub fn specta_builder() -> Builder<tauri::Wry> {
-    Builder::<tauri::Wry>::new().commands(collect_commands![get_inventory, add_item, lot_action])
+    Builder::<tauri::Wry>::new().commands(collect_commands![
+        get_inventory,
+        add_item,
+        lot_action,
+        receipt::parse_receipt,
+        receipt::import_receipt,
+        photo::scan_photo,
+        photo::apply_photo,
+        recipes::list_templates,
+        recipes::save_template,
+        recipes::delete_template,
+        recipes::order_templates,
+        recipes::suggest_recipes,
+        recipes::write_recipe,
+        settings::get_ai_settings,
+        settings::set_ai_settings,
+        settings::check_cloud
+    ])
 }
 
 pub fn export_bindings(builder: &Builder<tauri::Wry>) {
@@ -276,6 +317,8 @@ pub fn run() {
         .manage(AppState {
             store: Mutex::new(store),
             open_ms,
+            last_scan: Mutex::new(None),
+            last_suggestions: Mutex::new(None),
         })
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {

@@ -1,0 +1,23 @@
+# SYNTHETIC: invented for tests, not a real receipt
+EDEKA Muster
+Inh. Erika Beispiel
+Hauptstr. 5
+80331 Muenchen
+Tel 089 000000
+
+MILCH 3,5% 1L                1,09 B
+   2 x 0,99
+JOGHURT NATUR                1,98 B
+   0,512 kg x 2,99 EUR/kg
+BANANEN                      1,53 B
+MINERALWASSER STILL          0,69 A
+PFAND                        0,25 A
+BUTTER                       1,79 B
+AKTION                      -0,30
+
+SUMME                        7,03
+EC-CASH                      7,03
+Steuer Netto Steuer Brutto
+B 7%  6,57 0,46 7,03
+08.11.2026 10:15
+PAYBACK Punkte: 12

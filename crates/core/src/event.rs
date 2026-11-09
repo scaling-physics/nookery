@@ -80,6 +80,10 @@ pub enum Source {
         /// What the receipt printed, e.g. "BIO H-MILCH 1,5%".
         line: Option<String>,
         price_cents: Option<i64>,
+        /// The imported receipt this line came from (`nookery_receipt::receipt_id`);
+        /// None for purchases typed in by hand.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        receipt: Option<String>,
     },
     /// Spotted in a fridge/freezer/pantry photo without a matching purchase
     /// (leftovers, gifts, things cooked at home).
@@ -157,6 +161,7 @@ mod tests {
                     store: "Lidl".into(),
                     line: Some("H-MILCH 1,5%".into()),
                     price_cents: Some(109),
+                    receipt: None,
                 },
                 best_before: NaiveDate::from_ymd_opt(2026, 11, 20),
             },

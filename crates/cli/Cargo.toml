@@ -11,8 +11,12 @@ path = "src/main.rs"
 [dependencies]
 nookery-core.workspace = true
 nookery-store.workspace = true
+nookery-receipt.workspace = true
+nookery-vision.workspace = true
+nookery-recipes.workspace = true
 chrono.workspace = true
 clap.workspace = true
 
 [dev-dependencies]
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 tempfile.workspace = true

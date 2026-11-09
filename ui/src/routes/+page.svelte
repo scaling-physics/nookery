@@ -66,10 +66,10 @@
 	onMount(load);
 </script>
 
-<main class="mx-auto max-w-6xl px-5 pt-8 pb-16 sm:px-8">
-	<header class="mb-6 flex items-baseline justify-between gap-4">
+<main class="mx-auto max-w-6xl px-5 pt-6 pb-16 sm:px-8">
+	<header class="mb-6 flex items-center justify-between gap-4">
 		<div>
-			<h1 class="text-[26px] font-semibold tracking-tight">Nookery</h1>
+			<h1 class="text-[20px] font-semibold tracking-tight">Kitchen</h1>
 			<p class="text-sm text-[var(--ink-2)]">
 				{#if inv}
 					{inv.lots.length} things in stock{soon.length ? ` · ${soon.length} to use first` : ''}
@@ -78,6 +78,20 @@
 				{/if}
 			</p>
 		</div>
+		<nav class="flex flex-wrap justify-end gap-2" aria-label="Add stock">
+			<a
+				href="/photo"
+				class="rounded-full border border-[var(--line)] bg-[var(--surface)] px-3.5 py-1.5 text-sm text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
+			>
+				Scan a photo
+			</a>
+			<a
+				href="/receipt"
+				class="rounded-full border border-[var(--line)] bg-[var(--surface)] px-3.5 py-1.5 text-sm text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
+			>
+				Import receipt
+			</a>
+		</nav>
 	</header>
 
 	<form

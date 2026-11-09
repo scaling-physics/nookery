@@ -1,0 +1,17 @@
+[package]
+name = "nookery-recipes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nookery-core.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ureq = { version = "3.5.1", features = ["json"] }
+
+[dev-dependencies]
+nookery-store = { path = "../store" }
+tempfile.workspace = true

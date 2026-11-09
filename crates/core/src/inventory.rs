@@ -211,6 +211,7 @@ mod tests {
                     store: "Lidl".into(),
                     line: None,
                     price_cents: Some(229),
+                    receipt: None,
                 },
                 best_before: NaiveDate::from_ymd_opt(2026, 11, 20),
             },
