@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { api, progressChannel } from '#lib/api.js';
 	import type { AiModeView, CommandError, LotView, PhotoReviewView } from '#lib/bindings.js';
-	import { CLOUD_SIGN_IN, itemName, parseFieldError, statusLabel } from '#lib/format.js';
+	import {
+		CLOUD_CREDITS,
+		CLOUD_SIGN_IN,
+		itemName,
+		parseFieldError,
+		statusLabel
+	} from '#lib/format.js';
 	import ErrorBanner from '#lib/ErrorBanner.svelte';
 	import CloudTag from '#lib/CloudTag.svelte';
 	import type { Tone } from '#lib/format.js';
@@ -58,6 +64,8 @@
 				return `The vision model is not installed yet. Run “ollama pull ${e.detail}” in a terminal, then try again.`;
 			case 'cloud_sign_in':
 				return CLOUD_SIGN_IN;
+			case 'cloud_credits':
+				return CLOUD_CREDITS;
 			case 'not_found':
 				return 'That scan is no longer available. Scan the photo again.';
 			case 'bad_input': {

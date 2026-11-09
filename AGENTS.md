@@ -18,7 +18,8 @@ this before changing anything; update it when reality and this file differ.
   only for what's left (seconds). Measure: commands report timings (`--time`,
   `openMs`/`queryMs`).
 - **A ledger, not a list.** Only events are stored (`acquired`, `seen`,
-  `moved`, `opened`, `used`, `binned`, each about one lot = one batch of one
+  `moved`, `opened`, `used`, `binned`, `retracted` = entered by mistake,
+  counted as neither eaten nor wasted; each about one lot = one batch of one
   thing). The inventory is replayed from them (`Inventory::replay`), so every
   number is explainable and nothing is lost. Never store derived state as
   truth; add a new event kind instead.
@@ -44,12 +45,20 @@ this before changing anything; update it when reality and this file differ.
   matches ("bell pepper" ~ "red bell pepper") whose smaller side has a
   non-colour word; returns matched / missing (ask, never auto-remove) /
   new. `Alias` (receipt or photo text -> item, each, place).
+  `category(name) -> FoodCategory` (18 kinds, English + German words and
+  compounds; "pepper" = spice, "bell pepper"/"paprika" = vegetable):
+  derived for the list icons, never stored. `AiMode` + `CLOUD_MODEL`.
 - `crates/store`: SQLite (rusqlite, bundled, WAL). Table `events(seq, at,
   lot, kind, body JSON)`; migrations by `PRAGMA user_version`; refuses a
   newer schema. `append` validates the whole batch against the inventory
   first and writes it in one transaction (all or nothing). Data folder:
   `$NOOKERY_DATA_DIR`, else `<OS data dir>/dev.nookery.app` (= the Tauri
-  identifier, so CLI and app share `nookery.db`). Migration 2 adds
+  identifier, so CLI and app share `nookery.db`). The CLI and the app
+  write the same file: every write runs in a `BEGIN IMMEDIATE` transaction
+  that re-reads the ledger if another process appended (so a stale app
+  can't write on a lot the CLI already removed, which would make replay
+  fail); `refresh()` (one indexed query) reloads for reads, and the app
+  calls it in `AppState::store()` before every command. Migration 2 adds
   `receipts(id, store, date, total_cents, imported_at, text)` and
   `aliases(store, key, body JSON, learned_at)`: aliases are learned memory
   (upserted per store + key), not inventory. `import_receipt` records the
@@ -152,8 +161,25 @@ this before changing anything; update it when reality and this file differ.
   door to the backend: in Tauri it calls the bindings, in a plain browser it
   serves SYNTHETIC sample data (`pnpm -C ui dev`, then screenshot with
   Playwright from finopsis's `ui/node_modules`). Colour tokens in
-  `routes/layout.css` (light + dark): sage = fresh, saffron = use soon,
-  terracotta = expired, ice = freezer.
+  Palette in `routes/layout.css` (light + warm dark): a calm autumn
+  kitchen. Oat/parchment neutrals, espresso ink; `--sage` (parsley green)
+  = fresh + primary action, `--saffron` (lemon-amber) = use soon,
+  `--terracotta` (rust) = expired, `--ice` (dusk blue) = freezer;
+  `--parsley`/`--lemon`/`--pumpkin` decorative, `--backdrop` modal scrim,
+  `--c-*` food-icon tints. Normal text pairs checked >= 4.5:1 both themes.
+  Logo: an arched nook with lemons and flat-leaf parsley (keep leaflets
+  rounded and scalloped, not spiky): `assets/logo.svg` (app icon tile),
+  `assets/logo-mark.svg` (header `lib/Logo.svelte`, favicon). Regenerate
+  icons: export logo.svg to `assets/icon-1024.png`, then
+  `pnpm tauri icon assets/icon-1024.png`. `lib/FoodIcon.svelte`: 18 food
+  category glyphs (24 grid, tinted tile) for `LotView.category`.
+  Kitchen (`routes/+page.svelte`) is a thin shell over `lib/kitchen/`
+  (`LotRow`, `LotMenu`, `PlaceGroup`, `UseFirst`, `QuickAdd`,
+  `UndoToast`, `SelectBar`). Removing (used up / thrown away / wrong
+  entry) never writes at once: `pending.svelte.ts` hides the row, shows
+  Undo, and writes after 6 s or on `visibilitychange`/`pagehide`/destroy
+  (never if undone, never twice). Names shown via `displayName()`; stored
+  names untouched.
   `routes/receipt/+page.svelte`: paste or open a `.txt` receipt, review
   and edit each item line (item, amount, place, best before, track),
   sum banner, import; `format.ts` has `formatCents`, `formatDiff`,

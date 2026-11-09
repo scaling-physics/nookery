@@ -151,6 +151,7 @@ fn vision_error(e: VisionError, model: &str) -> Box<dyn std::error::Error> {
         )
         .into(),
         VisionError::SignIn => sign_in_message("photos").into(),
+        VisionError::NoCredits => format!("{e}: `nookery settings photos local`").into(),
         e => e.into(),
     }
 }

@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
 	formatCents,
+	displayName,
+	dotTone,
 	formatDiff,
 	frozenLabel,
 	itemName,
+	lotMeta,
+	matchesQuery,
 	parseFieldError,
 	statusLabel,
 	urgent
@@ -69,5 +73,51 @@ describe('parseFieldError', () => {
 	it('splits a field and a line number', () => {
 		expect(parseFieldError('qty:3')).toEqual({ field: 'qty', line: 3 });
 		expect(parseFieldError('total')).toEqual({ field: 'total', line: null });
+	});
+});
+
+describe('displayName', () => {
+	it('upper-cases the first letter and trims, keeping the rest', () => {
+		expect(displayName('broccoli')).toBe('Broccoli');
+		expect(displayName(' yellow box')).toBe('Yellow box');
+		expect(displayName('REWE Bio')).toBe('REWE Bio');
+		expect(displayName('')).toBe('');
+	});
+});
+
+describe('lotMeta', () => {
+	const base = {
+		status: 'undated',
+		days: null,
+		frozenOn: null,
+		opened: false,
+		store: null
+	} as const;
+	it('joins status, opened and store', () => {
+		expect(lotMeta({ ...base, status: 'use_soon', days: 0, opened: true, store: 'REWE' })).toBe(
+			'use today · opened · REWE'
+		);
+		expect(lotMeta({ ...base, status: 'unconfirmed', days: 15 })).toBe('not seen for 15 days');
+	});
+	it('says when it was frozen, and is empty when there is nothing to say', () => {
+		expect(lotMeta({ ...base, frozenOn: '2026-10-27' }, new Date(2026, 10, 8))).toBe(
+			'frozen 12 days ago'
+		);
+		expect(lotMeta(base)).toBe('');
+	});
+});
+
+describe('dotTone', () => {
+	it('uses ice in the freezer and the status tone elsewhere', () => {
+		expect(dotTone({ status: 'fresh', days: 3, location: 'freezer' })).toBe('ice');
+		expect(dotTone({ status: 'expired', days: 3, location: 'fridge' })).toBe('expired');
+	});
+});
+
+describe('matchesQuery', () => {
+	it('ignores case and surrounding spaces', () => {
+		expect(matchesQuery({ item: 'Greek yoghurt' }, ' YOGH ')).toBe(true);
+		expect(matchesQuery({ item: 'eggs' }, 'milk')).toBe(false);
+		expect(matchesQuery({ item: 'eggs' }, '')).toBe(true);
 	});
 });

@@ -117,6 +117,7 @@ impl From<VisionError> for CommandError {
             VisionError::Unreachable(url) => Self::VisionUnavailable(url),
             VisionError::ModelMissing(model) => Self::VisionModelMissing(model),
             VisionError::SignIn => Self::CloudSignIn,
+            VisionError::NoCredits => Self::CloudCredits,
             VisionError::Model(m) => {
                 eprintln!("nookery: vision model: {m}");
                 Self::Internal
@@ -282,7 +283,7 @@ pub async fn scan_photo(
         .decode(image_base64.trim())
         .map_err(|_| bad("image"))?;
     let (mode, cloud_model) = {
-        let store = state.store.lock().map_err(|_| CommandError::Internal)?;
+        let store = state.store()?;
         (store.ai_mode(SETTING_PHOTOS_AI)?, store.cloud_model()?)
     };
     // The model runs on a blocking thread and with the store unlocked.
@@ -300,7 +301,7 @@ pub async fn scan_photo(
     .map_err(|_| CommandError::Internal)??;
     let id = LotId::new().to_string();
     let (p, mut review) = {
-        let store = state.store.lock().map_err(|_| CommandError::Internal)?;
+        let store = state.store()?;
         review_in(&store, &scan, place, Local::now().date_naive(), &id)?
     };
     review.model = answered_by;
@@ -320,7 +321,7 @@ pub fn apply_photo(
         .as_ref()
         .filter(|s| s.id == input.scan_id)
         .ok_or(CommandError::NotFound)?;
-    let mut store = state.store.lock().map_err(|_| CommandError::Internal)?;
+    let mut store = state.store()?;
     let r = apply_photo_in(
         &mut store,
         &stored.plan,

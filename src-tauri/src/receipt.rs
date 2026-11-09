@@ -231,7 +231,7 @@ pub fn parse_receipt(
     text: String,
     store: Option<String>,
 ) -> Result<ReceiptView, CommandError> {
-    let s = state.store.lock().map_err(|_| CommandError::Internal)?;
+    let s = state.store()?;
     parse_receipt_in(&s, &text, store.as_deref())
 }
 
@@ -241,7 +241,7 @@ pub fn import_receipt(
     state: State<'_, AppState>,
     input: ReceiptImportInput,
 ) -> Result<ImportResultView, CommandError> {
-    let mut s = state.store.lock().map_err(|_| CommandError::Internal)?;
+    let mut s = state.store()?;
     import_receipt_in(&mut s, &input, Local::now().date_naive(), Utc::now())
 }
 

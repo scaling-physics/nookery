@@ -104,7 +104,7 @@ pub fn order_templates_in(store: &mut Store, ids: &[u32]) -> Result<(), CommandE
 #[tauri::command]
 #[specta::specta]
 pub fn list_templates(state: State<'_, AppState>) -> Result<Vec<TemplateView>, CommandError> {
-    let store = state.store.lock().map_err(|_| CommandError::Internal)?;
+    let store = state.store()?;
     list_templates_in(&store)
 }
 
@@ -114,21 +114,21 @@ pub fn save_template(
     state: State<'_, AppState>,
     input: SaveTemplateInput,
 ) -> Result<TemplateView, CommandError> {
-    let mut store = state.store.lock().map_err(|_| CommandError::Internal)?;
+    let mut store = state.store()?;
     save_template_in(&mut store, &input)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn delete_template(state: State<'_, AppState>, id: u32) -> Result<(), CommandError> {
-    let mut store = state.store.lock().map_err(|_| CommandError::Internal)?;
+    let mut store = state.store()?;
     delete_template_in(&mut store, id)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn order_templates(state: State<'_, AppState>, ids: Vec<u32>) -> Result<(), CommandError> {
-    let mut store = state.store.lock().map_err(|_| CommandError::Internal)?;
+    let mut store = state.store()?;
     order_templates_in(&mut store, &ids)
 }
 
@@ -214,6 +214,7 @@ impl From<RecipeError> for CommandError {
             RecipeError::ModelMissing(model) => Self::RecipeModelMissing(model),
             RecipeError::NoStock => bad("stock"),
             RecipeError::SignIn => Self::CloudSignIn,
+            RecipeError::NoCredits => Self::CloudCredits,
             RecipeError::Model(m) => {
                 eprintln!("nookery: recipe model: {m}");
                 Self::Internal
@@ -351,7 +352,7 @@ pub async fn suggest_recipes(
 ) -> Result<SuggestionsView, CommandError> {
     let today = Local::now().date_naive();
     let (stock, request, mode, cloud_model) = {
-        let store = state.store.lock().map_err(|_| CommandError::Internal)?;
+        let store = state.store()?;
         let (stock, request) = prepare_in(&store, &input, today)?;
         (
             stock,
@@ -372,7 +373,7 @@ pub async fn suggest_recipes(
     let id = LotId::new().to_string();
     suggestions.model = answered_by;
     let mut v = {
-        let store = state.store.lock().map_err(|_| CommandError::Internal)?;
+        let store = state.store()?;
         suggestions_view(&store, &suggestions, today, &id)
     };
     v.used_cloud = used_cloud;
@@ -413,7 +414,7 @@ pub async fn write_recipe(
         }
     };
     let (mode, cloud_model) = {
-        let store = state.store.lock().map_err(|_| CommandError::Internal)?;
+        let store = state.store()?;
         (store.ai_mode(SETTING_RECIPES_AI)?, store.cloud_model()?)
     };
     tauri::async_runtime::spawn_blocking(move || {

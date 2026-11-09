@@ -102,7 +102,7 @@ pub fn check_with(model: &dyn TextModel) -> CloudCheckView {
 #[tauri::command]
 #[specta::specta]
 pub fn get_ai_settings(state: State<'_, AppState>) -> Result<AiSettingsView, CommandError> {
-    let store = state.store.lock().map_err(|_| CommandError::Internal)?;
+    let store = state.store()?;
     get_in(&store)
 }
 
@@ -112,7 +112,7 @@ pub fn set_ai_settings(
     state: State<'_, AppState>,
     input: AiSettingsView,
 ) -> Result<AiSettingsView, CommandError> {
-    let mut store = state.store.lock().map_err(|_| CommandError::Internal)?;
+    let mut store = state.store()?;
     set_in(&mut store, &input)
 }
 
@@ -120,7 +120,7 @@ pub fn set_ai_settings(
 #[specta::specta]
 pub async fn check_cloud(state: State<'_, AppState>) -> Result<CloudCheckView, CommandError> {
     let cloud_model = {
-        let store = state.store.lock().map_err(|_| CommandError::Internal)?;
+        let store = state.store()?;
         store.cloud_model()?
     };
     tauri::async_runtime::spawn_blocking(move || {

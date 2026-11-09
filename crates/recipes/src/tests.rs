@@ -463,3 +463,13 @@ fn chosen_text_picks_the_model_for_the_mode() {
     assert!(fb.name().contains("cloud fallback: ollama some:cloud"));
     assert!(!fb.used_cloud());
 }
+
+#[test]
+fn a_402_means_no_cloud_credits_not_a_sign_in_problem() {
+    let e = crate::helpers::model_error(
+        "gemma4:31b-cloud",
+        "HTTP 402: {\"error\":\"Add usage credits or subscribe and save up to 66%: https://ollama.com/plans\"}",
+    );
+    assert!(matches!(e, RecipeError::NoCredits), "{e:?}");
+    assert!(e.to_string().contains("ollama.com/plans"));
+}

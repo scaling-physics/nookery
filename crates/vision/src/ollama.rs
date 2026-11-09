@@ -125,6 +125,8 @@ fn model_error(model: &str, msg: &str) -> VisionError {
     let lower = msg.to_lowercase();
     if lower.contains("unauthorized") {
         VisionError::SignIn
+    } else if lower.starts_with("http 402") || lower.contains("usage credits") {
+        VisionError::NoCredits
     } else if lower.contains("not found") {
         VisionError::ModelMissing(model.to_string())
     } else {

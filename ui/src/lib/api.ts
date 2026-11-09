@@ -62,6 +62,41 @@ function fakeApi() {
 	const day = 86_400_000;
 	const iso = (offset: number) => new Date(Date.now() + offset * day).toISOString().slice(0, 10);
 	let n = 0;
+	const CATEGORY: Record<string, LotView['category']> = {
+		cream: 'dairy',
+		spinach: 'vegetables',
+		'greek yoghurt': 'dairy',
+		pesto: 'sauces',
+		eggs: 'eggs',
+		halloumi: 'cheese',
+		broccoli: 'vegetables',
+		milk: 'dairy',
+		butter: 'dairy',
+		carrots: 'vegetables',
+		'yellow box': 'other',
+		'yellow sauce': 'other',
+		cheddar: 'cheese',
+		'leftover rice': 'leftovers',
+		lemons: 'fruit',
+		hummus: 'legumes',
+		ketchup: 'sauces',
+		'white tub': 'other',
+		'minced beef': 'meat',
+		peas: 'vegetables',
+		'bread rolls': 'bread',
+		'basmati rice': 'grains',
+		chickpeas: 'legumes',
+		'olive oil': 'sauces',
+		buckwheat: 'grains',
+		spaghetti: 'grains',
+		oats: 'grains',
+		'tinned tomatoes': 'vegetables',
+		honey: 'sweets',
+		lentils: 'legumes',
+		'green jar': 'other',
+		'coffee beans': 'drinks',
+		flour: 'grains'
+	};
 	const lot = (
 		item: string,
 		left: string,
@@ -76,6 +111,7 @@ function fakeApi() {
 			id,
 			short: id,
 			item,
+			category: CATEGORY[item.toLowerCase()] ?? 'other',
 			left,
 			location,
 			status,
@@ -87,17 +123,55 @@ function fakeApi() {
 			...extra
 		};
 	};
+	/** Remove `qty` ("200g", "2") from a left amount when the units agree and
+	 *  something is left; otherwise null (all of it is gone). */
+	const subtractQty = (left: string, qty: string): string | null => {
+		const parse = (t: string) => {
+			const m = /^\s*(\d+(?:[.,]\d+)?)\s*([a-z]*)\s*$/i.exec(t);
+			return m ? { n: Number(m[1].replace(',', '.')), u: m[2].toLowerCase() } : null;
+		};
+		const a = parse(left);
+		const b = parse(qty);
+		if (!a || !b || a.u !== b.u || b.n >= a.n) return null;
+		return `${Math.round((a.n - b.n) * 1000) / 1000}${a.u}`;
+	};
 	const lots: LotView[] = [
+		// Fridge
 		lot('cream', '200ml', 'fridge', -1, { opened: true }),
-		lot('spinach', '250g', 'fridge', 0, { store: 'REWE' }),
+		lot('Spinach', '250g', 'fridge', 0, { store: 'REWE' }),
 		lot('greek yoghurt', '500g', 'fridge', 1, { store: 'Lidl' }),
-		lot('eggs', '4', 'fridge', 9, { store: 'Lidl' }),
+		lot('pesto', '1', 'fridge', 2, { opened: true }),
+		lot('Eggs', '4', 'fridge', 9, { store: 'Lidl' }),
 		lot('halloumi', '225g', 'fridge', 21),
+		lot('broccoli', '1', 'fridge', 4),
+		lot('milk', '1l', 'fridge', 6, { store: 'REWE' }),
+		lot('Butter', '250g', 'fridge', 28, { opened: true }),
+		lot('carrots', '600g', 'fridge', 12),
+		lot('yellow box', '1', 'fridge', null),
+		lot('yellow sauce', '1', 'fridge', null, { opened: true }),
+		lot('Cheddar', '200g', 'fridge', 18, { store: 'Lidl' }),
+		lot('leftover rice', '2', 'fridge', 1),
+		lot('lemons', '3', 'fridge', 10),
+		lot('hummus', '200g', 'fridge', null, { status: 'unconfirmed', days: 15 }),
+		lot('ketchup', '1', 'fridge', 90, { opened: true }),
+		lot('white tub', '2', 'fridge', null, { status: 'unconfirmed', days: 22 }),
+		// Freezer
 		lot('minced beef', '500g', 'freezer', null, { frozenOn: iso(-12) }),
-		lot('peas', '750g', 'freezer', null, { frozenOn: iso(-40) }),
+		lot('Peas', '750g', 'freezer', null, { frozenOn: iso(-40) }),
+		lot('bread rolls', '6', 'freezer', null, { frozenOn: iso(-3) }),
+		// Pantry
 		lot('basmati rice', '1.5kg', 'pantry', 300),
 		lot('chickpeas', '2', 'pantry', 500),
-		lot('olive oil', '750ml', 'pantry', null, { opened: true })
+		lot('olive oil', '750ml', 'pantry', null, { opened: true }),
+		lot('Buckwheat', '500g', 'pantry', 200),
+		lot('spaghetti', '500g', 'pantry', 400, { store: 'REWE' }),
+		lot('oats', '1kg', 'pantry', 150, { opened: true }),
+		lot('tinned tomatoes', '3', 'pantry', 600),
+		lot('honey', '350g', 'pantry', null),
+		lot('lentils', '500g', 'pantry', 320),
+		lot('green jar', '1', 'pantry', null, { status: 'unconfirmed', days: 40 }),
+		lot('Coffee beans', '250g', 'pantry', 60, { opened: true }),
+		lot('flour', '1kg', 'pantry', -3)
 	];
 	// SYNTHETIC receipt (the REWE test fixture), with one "learned" line.
 	const item = (
@@ -427,12 +501,32 @@ function fakeApi() {
 		},
 		lotAction: (id: string, action: LotAction): Promise<Result<LotView>> => {
 			const i = lots.findIndex((l) => l.short === id);
+			if (i < 0) return Promise.resolve({ status: 'error', error: { kind: 'not_found' } });
 			const l = lots[i];
-			if (action.type === 'use' || action.type === 'bin') lots.splice(i, 1);
-			if (action.type === 'open') l.opened = true;
-			if (action.type === 'move') {
-				l.location = action.to;
-				l.frozenOn = action.to === 'freezer' ? iso(0) : null;
+			switch (action.type) {
+				case 'use': {
+					const rest = action.qty ? subtractQty(l.left, action.qty) : null;
+					if (rest) l.left = rest;
+					else lots.splice(i, 1);
+					break;
+				}
+				case 'bin':
+				case 'wrong':
+					lots.splice(i, 1);
+					break;
+				case 'open':
+					l.opened = true;
+					break;
+				case 'seen':
+					if (l.status === 'unconfirmed') {
+						l.status = 'undated';
+						l.days = null;
+					}
+					break;
+				case 'move':
+					l.location = action.to;
+					l.frozenOn = action.to === 'freezer' ? iso(0) : null;
+					break;
 			}
 			return ok(l);
 		}

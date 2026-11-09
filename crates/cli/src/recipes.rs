@@ -110,6 +110,7 @@ fn request(store: &Store, args: &RecipesArgs) -> Res<Request> {
 fn recipe_error(e: RecipeError) -> Box<dyn std::error::Error> {
     match e {
         RecipeError::SignIn => sign_in_message("recipes").into(),
+        RecipeError::NoCredits => format!("{e}: `nookery settings recipes local`").into(),
         e => e.into(),
     }
 }

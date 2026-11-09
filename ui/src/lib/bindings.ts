@@ -76,8 +76,16 @@ export type CommandError =
  *  (`ollama signin`).
  */
 { kind: "cloud_sign_in" } | 
+/**
+ *  Signed in, but the Ollama account has no credits for the cloud
+ *  model (ollama.com/plans).
+ */
+{ kind: "cloud_credits" } | 
 /**  This receipt is already in the ledger. */
 { kind: "already_imported" } | { kind: "internal" };
+
+/**  `nookery_core::FoodCategory`, typed for the UI. */
+export type FoodCategoryView = "vegetables" | "fruit" | "herbs" | "dairy" | "cheese" | "eggs" | "meat" | "fish" | "bread" | "grains" | "legumes" | "spices" | "sauces" | "sweets" | "drinks" | "nuts" | "leftovers" | "other";
 
 export type HaveView = {
 	/**  The ingredient as the model wrote it. */
@@ -101,11 +109,15 @@ export type InventoryView = {
 
 export type LotAction = 
 /**  Eat or cook `qty` (empty: all of it). */
-{ type: "use"; qty: string | null } | { type: "open" } | { type: "bin" } | { type: "move"; to: string } | 
+{ type: "use"; qty: string | null } | { type: "open" } | { type: "bin" } | 
+/**  Entered by mistake: remove without counting it as eaten or wasted. */
+{ type: "wrong" } | { type: "move"; to: string } | 
 /**  Still there. */
 { type: "seen" };
 
-export type LotStatus = "expired" | "use_soon" | "fresh" | "unconfirmed" | "undated" | "used" | "binned";
+export type LotStatus = "expired" | "use_soon" | "fresh" | "unconfirmed" | "undated" | "used" | "binned" | 
+/**  Removed as entered by mistake. */
+"retracted";
 
 export type LotView = {
 	id: string,
@@ -121,6 +133,8 @@ export type LotView = {
 	opened: boolean,
 	frozenOn: string | null,
 	store: string | null,
+	/**  For the little food icon (guessed from the name). */
+	category: FoodCategoryView,
 };
 
 export type PhotoAction = "seen" | "add" | "ignore";

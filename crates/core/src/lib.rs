@@ -4,6 +4,7 @@
 
 mod ai;
 mod alias;
+mod category;
 mod dates;
 mod event;
 mod inventory;
@@ -13,6 +14,7 @@ mod status;
 
 pub use ai::{AiMode, CLOUD_MODEL};
 pub use alias::Alias;
+pub use category::{category, FoodCategory};
 pub use dates::parse_date;
 pub use event::{Event, EventKind, Location, LotId, Source};
 pub use inventory::{Gone, Inventory, LedgerError, Lot};

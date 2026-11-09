@@ -8,7 +8,7 @@
 		SuggestionView,
 		TemplateView
 	} from '#lib/bindings.js';
-	import { CLOUD_SIGN_IN, itemName, statusLabel } from '#lib/format.js';
+	import { CLOUD_CREDITS, CLOUD_SIGN_IN, itemName, statusLabel } from '#lib/format.js';
 	import ErrorBanner from '#lib/ErrorBanner.svelte';
 	import CloudTag from '#lib/CloudTag.svelte';
 	import { rs } from '#lib/recipes-state.svelte.js';
@@ -41,6 +41,8 @@
 		switch (e.kind) {
 			case 'cloud_sign_in':
 				return CLOUD_SIGN_IN;
+			case 'cloud_credits':
+				return CLOUD_CREDITS;
 			case 'recipe_model_unavailable':
 				return `Nookery could not reach the local model at ${e.detail}. Start Ollama (open the Ollama app, or run “ollama serve”) and try again.`;
 			case 'recipe_model_missing':

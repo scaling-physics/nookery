@@ -68,6 +68,9 @@ enum Cmd {
     Open { id: String },
     /// Throw a lot away.
     Bin { id: String },
+    /// Remove a lot entered by mistake (a wrong photo guess, a typo); it
+    /// counts as neither eaten nor wasted.
+    Wrong { id: String },
     /// Move a lot (to the freezer = freeze it).
     Move { id: String, to: Location },
     /// Confirm a lot is still there, optionally with what's left.
@@ -192,6 +195,7 @@ fn execute(
         Cmd::Use { id, qty } => one(store, &id, EventKind::Used { qty })?,
         Cmd::Open { id } => one(store, &id, EventKind::Opened)?,
         Cmd::Bin { id } => one(store, &id, EventKind::Binned)?,
+        Cmd::Wrong { id } => one(store, &id, EventKind::Retracted)?,
         Cmd::Move { id, to } => one(store, &id, EventKind::Moved { to })?,
         Cmd::Seen { id, left } => {
             let lot = store.find_lot(&id)?;
@@ -313,6 +317,7 @@ fn describe(k: &EventKind) -> String {
         EventKind::Used { qty: Some(q) } => format!("used {q}"),
         EventKind::Used { qty: None } => "used up".into(),
         EventKind::Binned => "binned".into(),
+        EventKind::Retracted => "removed: entered by mistake".into(),
     }
 }
 

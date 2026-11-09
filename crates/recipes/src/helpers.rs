@@ -10,8 +10,11 @@ pub(crate) const TEMPERATURE: f64 = 0.7;
 // ---- Ollama errors (same mapping as the vision crate) ----
 
 pub(crate) fn model_error(model: &str, msg: &str) -> RecipeError {
-    if msg.to_lowercase().contains("unauthorized") {
+    let lower = msg.to_lowercase();
+    if lower.contains("unauthorized") {
         RecipeError::SignIn
+    } else if lower.starts_with("http 402") || lower.contains("usage credits") {
+        RecipeError::NoCredits
     } else if msg.to_lowercase().contains("not found") {
         RecipeError::ModelMissing(model.to_string())
     } else {

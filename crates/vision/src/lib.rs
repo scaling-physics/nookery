@@ -103,6 +103,10 @@ pub enum VisionError {
     /// A cloud model was asked for but Ollama isn't signed in (HTTP 401).
     #[error("cloud models need an Ollama account: run `ollama signin`")]
     SignIn,
+    /// Signed in, but the account can't pay for this cloud model (HTTP
+    /// 402; seen 2026-11-09 for gemma4 and gpt-oss on a free account).
+    #[error("your Ollama account has no credits for this cloud model (signed in, but it isn't free): add credits at https://ollama.com/plans, or use the model on this Mac")]
+    NoCredits,
 }
 
 /// Cuts the photo (JPEG, PNG or WebP bytes; EXIF orientation applied) into

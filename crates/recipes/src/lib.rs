@@ -261,6 +261,9 @@ pub enum RecipeError {
     /// A cloud model was asked for but Ollama isn't signed in (HTTP 401).
     #[error("cloud models need an Ollama account: run `ollama signin`")]
     SignIn,
+    /// Signed in, but the account can't pay for this cloud model (HTTP 402).
+    #[error("your Ollama account has no credits for this cloud model (signed in, but it isn't free): add credits at https://ollama.com/plans, or use the model on this Mac")]
+    NoCredits,
 }
 
 /// A local text model. Implementations must not send anything off the

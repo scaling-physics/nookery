@@ -11,8 +11,8 @@ use std::time::Instant;
 
 use chrono::{Local, Utc};
 use nookery_core::{
-    parse_date, status, use_first, Event, EventKind, Gone, Location, Lot, LotId, Qty, Source,
-    Status,
+    category, parse_date, status, use_first, Event, EventKind, FoodCategory, Gone, Location, Lot,
+    LotId, Qty, Source, Status,
 };
 use nookery_store::{default_data_dir, Store, StoreError};
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,16 @@ pub struct AppState {
     last_scan: Mutex<Option<photo::StoredScan>>,
     /// The last recipe suggestions, until replaced.
     last_suggestions: Mutex<Option<recipes::StoredSuggestions>>,
+}
+
+impl AppState {
+    /// The store, reloaded first if another process (the CLI) appended
+    /// since: one indexed query, so every command sees current data.
+    pub(crate) fn store(&self) -> Result<std::sync::MutexGuard<'_, Store>, CommandError> {
+        let mut s = self.store.lock().map_err(|_| CommandError::Internal)?;
+        s.refresh()?;
+        Ok(s)
+    }
 }
 
 /// What the UI is told when a command fails.
@@ -48,6 +58,9 @@ pub enum CommandError {
     /// A cloud model was chosen but Ollama isn't signed in
     /// (`ollama signin`).
     CloudSignIn,
+    /// Signed in, but the Ollama account has no credits for the cloud
+    /// model (ollama.com/plans).
+    CloudCredits,
     /// This receipt is already in the ledger.
     AlreadyImported,
     Internal,
@@ -76,6 +89,8 @@ pub enum LotStatus {
     Undated,
     Used,
     Binned,
+    /// Removed as entered by mistake.
+    Retracted,
 }
 
 #[derive(Debug, Serialize, Type)]
@@ -94,6 +109,58 @@ pub struct LotView {
     pub opened: bool,
     pub frozen_on: Option<String>,
     pub store: Option<String>,
+    /// For the little food icon (guessed from the name).
+    pub category: FoodCategoryView,
+}
+
+/// `nookery_core::FoodCategory`, typed for the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum FoodCategoryView {
+    Vegetables,
+    Fruit,
+    Herbs,
+    Dairy,
+    Cheese,
+    Eggs,
+    Meat,
+    Fish,
+    Bread,
+    Grains,
+    Legumes,
+    Spices,
+    Sauces,
+    Sweets,
+    Drinks,
+    Nuts,
+    Leftovers,
+    Other,
+}
+
+impl From<FoodCategory> for FoodCategoryView {
+    fn from(c: FoodCategory) -> Self {
+        use FoodCategory as C;
+        match c {
+            C::Vegetables => Self::Vegetables,
+            C::Fruit => Self::Fruit,
+            C::Herbs => Self::Herbs,
+            C::Dairy => Self::Dairy,
+            C::Cheese => Self::Cheese,
+            C::Eggs => Self::Eggs,
+            C::Meat => Self::Meat,
+            C::Fish => Self::Fish,
+            C::Bread => Self::Bread,
+            C::Grains => Self::Grains,
+            C::Legumes => Self::Legumes,
+            C::Spices => Self::Spices,
+            C::Sauces => Self::Sauces,
+            C::Sweets => Self::Sweets,
+            C::Drinks => Self::Drinks,
+            C::Nuts => Self::Nuts,
+            C::Leftovers => Self::Leftovers,
+            C::Other => Self::Other,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Type)]
@@ -126,6 +193,8 @@ pub enum LotAction {
     },
     Open,
     Bin,
+    /// Entered by mistake: remove without counting it as eaten or wasted.
+    Wrong,
     Move {
         to: String,
     },
@@ -137,6 +206,7 @@ fn view(l: &Lot, s: Status) -> LotView {
     let (status, days) = match (l.gone, s) {
         (Some(Gone::Used), _) => (LotStatus::Used, None),
         (Some(Gone::Binned), _) => (LotStatus::Binned, None),
+        (Some(Gone::Retracted), _) => (LotStatus::Retracted, None),
         (None, Status::Expired(d)) => (LotStatus::Expired, Some(d as i32)),
         (None, Status::UseSoon(d)) => (LotStatus::UseSoon, Some(d as i32)),
         (None, Status::Fresh(d)) => (LotStatus::Fresh, Some(d as i32)),
@@ -160,6 +230,7 @@ fn view(l: &Lot, s: Status) -> LotView {
             Source::Receipt { store, .. } => Some(store.clone()),
             _ => None,
         },
+        category: category(&l.item).into(),
     }
 }
 
@@ -171,7 +242,7 @@ fn bad(field: &str) -> CommandError {
 #[specta::specta]
 fn get_inventory(state: State<'_, AppState>) -> Result<InventoryView, CommandError> {
     let t = Instant::now();
-    let store = state.store.lock().map_err(|_| CommandError::Internal)?;
+    let store = state.store()?;
     let today = Local::now().date_naive();
     let lots = use_first(store.inventory().in_stock(), today)
         .into_iter()
@@ -213,7 +284,7 @@ fn add_item(state: State<'_, AppState>, input: AddInput) -> Result<LotView, Comm
         },
     };
     let lot = LotId::new();
-    let mut store = state.store.lock().map_err(|_| CommandError::Internal)?;
+    let mut store = state.store()?;
     store.append(&[Event {
         at: Utc::now(),
         lot,
@@ -237,7 +308,7 @@ fn lot_action(
     action: LotAction,
 ) -> Result<LotView, CommandError> {
     let today = Local::now().date_naive();
-    let mut store = state.store.lock().map_err(|_| CommandError::Internal)?;
+    let mut store = state.store()?;
     let lot = store.find_lot(&id)?;
     let kind = match action {
         LotAction::Use { qty } => EventKind::Used {
@@ -248,6 +319,7 @@ fn lot_action(
         },
         LotAction::Open => EventKind::Opened,
         LotAction::Bin => EventKind::Binned,
+        LotAction::Wrong => EventKind::Retracted,
         LotAction::Move { to } => EventKind::Moved {
             to: to.parse().map_err(|_| bad("to"))?,
         },

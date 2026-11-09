@@ -120,6 +120,10 @@ pub enum EventKind {
     },
     /// Thrown away.
     Binned,
+    /// This lot was never real: a wrong photo guess, a typo, a double
+    /// entry. It leaves the inventory like `Binned`, but counts as neither
+    /// eaten nor wasted (so waste numbers stay honest).
+    Retracted,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,6 +144,7 @@ impl EventKind {
             EventKind::Opened => "opened",
             EventKind::Used { .. } => "used",
             EventKind::Binned => "binned",
+            EventKind::Retracted => "retracted",
         }
     }
 }

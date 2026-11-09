@@ -1,6 +1,7 @@
 <script lang="ts">
 	import './layout.css';
 	import { page } from '$app/state';
+	import Logo from '#lib/Logo.svelte';
 
 	let { children } = $props();
 
@@ -22,7 +23,10 @@
 	<header
 		class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-5 pt-7 sm:px-8"
 	>
-		<p class="text-[22px] font-semibold tracking-tight">Nookery</p>
+		<a href="/" class="brand" aria-label="Nookery, home">
+			<Logo size={34} />
+			<span class="wordmark" aria-hidden="true">Nookery</span>
+		</a>
 		<div class="flex items-center gap-1">
 			<nav aria-label="Sections" class="tabs">
 				{#each TABS as t (t.href)}
@@ -62,6 +66,18 @@
 {@render children()}
 
 <style>
+	.brand {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.6rem;
+		color: var(--ink);
+	}
+	.wordmark {
+		font-size: 24px;
+		font-weight: 650;
+		letter-spacing: -0.03em;
+		line-height: 1;
+	}
 	.gear {
 		display: inline-flex;
 		align-items: center;

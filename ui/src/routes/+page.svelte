@@ -1,32 +1,29 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { api } from '#lib/api.js';
-	import type { InventoryView, LotView } from '#lib/bindings.js';
-	import { frozenLabel, itemName, statusLabel, urgent } from '#lib/format.js';
+	import type { InventoryView, LotAction, LotView } from '#lib/bindings.js';
+	import { matchesQuery, urgent } from '#lib/format.js';
+	import Icon from '#lib/kitchen/Icon.svelte';
+	import PlaceGroup from '#lib/kitchen/PlaceGroup.svelte';
+	import QuickAdd from '#lib/kitchen/QuickAdd.svelte';
+	import SelectBar from '#lib/kitchen/SelectBar.svelte';
+	import UndoToast from '#lib/kitchen/UndoToast.svelte';
+	import UseFirst from '#lib/kitchen/UseFirst.svelte';
+	import { PendingRemovals, type RemovalKind } from '#lib/kitchen/pending.svelte.js';
 
 	const PLACES = [
-		{ id: 'fridge', label: 'Fridge' },
-		{ id: 'freezer', label: 'Freezer' },
-		{ id: 'pantry', label: 'Pantry' }
-	] as const;
+		{ id: 'fridge', label: 'Fridge', empty: 'Nothing in the fridge.' },
+		{ id: 'freezer', label: 'Freezer', empty: 'Nothing in the freezer.' },
+		{ id: 'pantry', label: 'Pantry', empty: 'Nothing in the pantry.' }
+	];
 
 	let inv = $state<InventoryView | null>(null);
 	let error = $state('');
-
-	// Quick add
-	let item = $state('');
-	let qty = $state('');
-	let place = $state<string>('fridge');
-	let bb = $state('');
-	let shop = $state('');
-	let itemInput: HTMLInputElement | undefined = $state();
-
-	const soon = $derived(inv ? urgent(inv.lots) : []);
-	const byPlace = $derived(
-		Object.fromEntries(
-			PLACES.map((p) => [p.id, inv?.lots.filter((l) => l.location === p.id) ?? []])
-		)
-	);
+	let query = $state('');
+	let filter = $state('all');
+	let selecting = $state(false);
+	let selected = $state<string[]>([]);
+	let search: HTMLInputElement | undefined = $state();
 
 	async function load() {
 		const r = await api.getInventory();
@@ -34,227 +31,199 @@
 		else error = 'Could not read the inventory.';
 	}
 
-	async function add(e: SubmitEvent) {
-		e.preventDefault();
-		if (!item.trim()) return;
-		const r = await api.addItem({
-			item,
-			qty,
-			location: place,
-			bestBefore: bb || null,
-			store: shop || null
-		});
-		if (r.status === 'error') {
-			error =
-				r.error.kind === 'bad_input'
-					? `Check the ${r.error.detail === 'bestBefore' ? 'date' : r.error.detail === 'qty' ? 'amount' : r.error.detail}.`
-					: 'Could not add it.';
-			return;
-		}
-		error = '';
-		item = qty = bb = '';
-		await load();
-		itemInput?.focus();
+	const pending = new PendingRemovals({
+		write: async (short, action) => {
+			const r = await api.lotAction(short, action);
+			if (r.status === 'error') throw new Error(r.error.kind);
+		},
+		onSettled: load,
+		onError: () => (error = 'Some changes could not be saved. They are back in the list.')
+	});
+
+	// What is shown: not pending removal, and matching the search.
+	const visible = $derived(inv ? inv.lots.filter((l) => !pending.hiddenIds.has(l.id)) : []);
+	const found = $derived(visible.filter((l) => matchesQuery(l, query)));
+	const soon = $derived(query.trim() ? [] : urgent(visible));
+	const byPlace = $derived(
+		Object.fromEntries(PLACES.map((p) => [p.id, found.filter((l) => l.location === p.id)]))
+	);
+	const shown = $derived(PLACES.filter((p) => filter === 'all' || filter === p.id));
+	const none = $derived(query.trim() !== '' && found.length === 0);
+
+	function removeLots(lots: LotView[], kind: RemovalKind) {
+		pending.add(lots, kind);
+		selected = selected.filter((id) => !lots.some((l) => l.id === id));
 	}
 
-	async function act(lot: LotView, action: Parameters<typeof api.lotAction>[1]) {
+	async function act(lot: LotView, action: LotAction) {
 		const r = await api.lotAction(lot.short, action);
-		if (r.status === 'error') error = 'That did not work.';
+		error = r.status === 'error' ? 'That did not work.' : '';
 		await load();
 	}
 
-	onMount(load);
+	function toggle(lot: LotView) {
+		selected = selected.includes(lot.id)
+			? selected.filter((id) => id !== lot.id)
+			: [...selected, lot.id];
+	}
+
+	function selectAll(lots: LotView[]) {
+		const all = lots.every((l) => selected.includes(l.id));
+		const ids = new Set(lots.map((l) => l.id));
+		selected = all ? selected.filter((id) => !ids.has(id)) : [...new Set([...selected, ...ids])];
+	}
+
+	function removeSelected(kind: RemovalKind) {
+		removeLots(
+			visible.filter((l) => selected.includes(l.id)),
+			kind
+		);
+		selecting = false;
+	}
+
+	function endSelect() {
+		selecting = false;
+		selected = [];
+	}
+
+	function onkeydown(e: KeyboardEvent) {
+		const t = e.target as HTMLElement | null;
+		if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+			if (t && (t.matches('input, textarea, select') || t.isContentEditable)) return;
+			e.preventDefault();
+			search?.focus();
+		}
+	}
+
+	let detach = () => {};
+	onMount(() => {
+		void load();
+		detach = pending.attach();
+	});
+	onDestroy(() => {
+		detach();
+		void pending.flush();
+	});
 </script>
 
-<main class="mx-auto max-w-6xl px-5 pt-6 pb-16 sm:px-8">
-	<header class="mb-6 flex items-center justify-between gap-4">
+<svelte:window {onkeydown} />
+
+<main class="mx-auto max-w-6xl px-5 pt-6 pb-24 sm:px-8">
+	<header class="mb-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
 		<div>
 			<h1 class="text-[20px] font-semibold tracking-tight">Kitchen</h1>
 			<p class="text-sm text-[var(--ink-2)]">
 				{#if inv}
-					{inv.lots.length} things in stock{soon.length ? ` · ${soon.length} to use first` : ''}
+					{visible.length} things in stock{urgent(visible).length
+						? ` · ${urgent(visible).length} to use first`
+						: ''}
 				{:else}
 					&nbsp;
 				{/if}
 			</p>
 		</div>
-		<nav class="flex flex-wrap justify-end gap-2" aria-label="Add stock">
-			<a
-				href="/photo"
-				class="rounded-full border border-[var(--line)] bg-[var(--surface)] px-3.5 py-1.5 text-sm text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
-			>
-				Scan a photo
-			</a>
-			<a
-				href="/receipt"
-				class="rounded-full border border-[var(--line)] bg-[var(--surface)] px-3.5 py-1.5 text-sm text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
-			>
-				Import receipt
-			</a>
+		<nav class="flex gap-2" aria-label="Add stock">
+			<a href="/photo" class="pill"><Icon name="camera" size={15} /> Scan a photo</a>
+			<a href="/receipt" class="pill"><Icon name="receipt" size={15} /> Import receipt</a>
 		</nav>
 	</header>
 
-	<form
-		onsubmit={add}
-		class="mb-8 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2 sm:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]"
-	>
-		<input
-			bind:this={itemInput}
-			bind:value={item}
-			placeholder="Add something… (milk)"
-			aria-label="Item"
-			class="col-span-2 min-w-0 rounded-xl bg-[var(--surface-2)] px-3 py-2 placeholder:text-[var(--ink-3)] sm:col-span-1"
-		/>
-		<input
-			bind:value={qty}
-			placeholder="1, 500g, 1l"
-			aria-label="Amount"
-			class="min-w-0 rounded-xl bg-[var(--surface-2)] px-3 py-2 placeholder:text-[var(--ink-3)]"
-		/>
-		<select
-			bind:value={place}
-			aria-label="Where"
-			class="min-w-0 rounded-xl bg-[var(--surface-2)] px-3 py-2"
-		>
-			{#each PLACES as p (p.id)}
-				<option value={p.id}>{p.label}</option>
-			{/each}
-		</select>
-		<input
-			bind:value={bb}
-			placeholder="Best before"
-			aria-label="Best before"
-			class="min-w-0 rounded-xl bg-[var(--surface-2)] px-3 py-2 placeholder:text-[var(--ink-3)]"
-		/>
-		<input
-			bind:value={shop}
-			placeholder="Store"
-			aria-label="Store"
-			class="min-w-0 rounded-xl bg-[var(--surface-2)] px-3 py-2 placeholder:text-[var(--ink-3)]"
-		/>
-		<button
-			class="rounded-xl bg-[var(--sage)] px-4 py-2 font-medium text-[var(--surface)] transition-opacity hover:opacity-90 active:opacity-80"
-		>
-			Add
-		</button>
-	</form>
+	<QuickAdd onadded={load} onerror={(m) => (error = m)} />
 
 	{#if error}
-		<p role="alert" class="mb-6 text-sm text-[var(--terracotta)]">{error}</p>
+		<p role="alert" class="mb-4 text-sm text-[var(--terracotta)]">{error}</p>
 	{/if}
 
-	{#if soon.length}
-		<section class="mb-10" aria-labelledby="soon-h">
-			<h2
-				id="soon-h"
-				class="mb-3 text-[13px] font-semibold tracking-wide text-[var(--ink-2)] uppercase"
-			>
-				Use first
-			</h2>
-			<ul class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-				{#each soon as lot (lot.id)}
-					{@const s = statusLabel(lot)}
-					<li
-						class="flex items-center justify-between gap-3 rounded-2xl border p-4"
-						style:border-color={s.tone === 'expired' ? 'var(--terracotta)' : 'var(--line)'}
-						style:background={s.tone === 'expired' ? 'var(--terracotta-bg)' : 'var(--saffron-bg)'}
-					>
-						<div class="min-w-0">
-							<p class="truncate font-medium">{itemName(lot.item)}</p>
-							<p
-								class="text-sm"
-								style:color={s.tone === 'expired' ? 'var(--terracotta)' : 'var(--saffron)'}
-							>
-								{s.text} · {lot.left} · {lot.location}
-							</p>
-						</div>
-						<div class="flex shrink-0 gap-1">
-							<button class="chip" onclick={() => act(lot, { type: 'use', qty: null })}>Used</button
-							>
-							{#if lot.location !== 'freezer'}
-								<button class="chip" onclick={() => act(lot, { type: 'move', to: 'freezer' })}>
-									Freeze
-								</button>
-							{/if}
-							<button class="chip" onclick={() => act(lot, { type: 'bin' })}>Bin</button>
-						</div>
-					</li>
-				{/each}
-			</ul>
-		</section>
-	{/if}
+	<UseFirst lots={soon} onremove={(l, k) => removeLots([l], k)} />
 
-	<div class="grid grid-cols-1 gap-6 md:grid-cols-3">
-		{#each PLACES as p (p.id)}
-			{@const lots = byPlace[p.id]}
-			<section aria-labelledby="{p.id}-h">
-				<h2
-					id="{p.id}-h"
-					class="mb-3 flex items-baseline justify-between text-[13px] font-semibold tracking-wide text-[var(--ink-2)] uppercase"
+	<div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2.5">
+		<label class="search">
+			<span class="sr-only">Search the kitchen</span>
+			<Icon name="search" size={16} />
+			<input
+				bind:this={search}
+				bind:value={query}
+				type="search"
+				placeholder="Search   /"
+				autocomplete="off"
+				onkeydown={(e) => e.key === 'Escape' && ((query = ''), search?.blur())}
+			/>
+		</label>
+		<div class="flex min-w-0 flex-1 items-center gap-2">
+			<div class="chips" role="group" aria-label="Show">
+				<button
+					type="button"
+					class="fchip"
+					class:on={filter === 'all'}
+					aria-pressed={filter === 'all'}
+					onclick={() => (filter = 'all')}
 				>
-					{p.label}
-					<span class="font-normal normal-case tabular-nums">{lots.length}</span>
-				</h2>
-				{#if lots.length === 0}
-					<p
-						class="rounded-2xl border border-dashed border-[var(--line)] p-4 text-sm text-[var(--ink-3)]"
+					All <span>{found.length}</span>
+				</button>
+				{#each PLACES as p (p.id)}
+					<button
+						type="button"
+						class="fchip"
+						class:on={filter === p.id}
+						aria-pressed={filter === p.id}
+						onclick={() => (filter = p.id)}
 					>
-						Nothing in the {p.id} yet.
-					</p>
-				{:else}
-					<ul
-						class="divide-y divide-[var(--line)] rounded-2xl border border-[var(--line)] bg-[var(--surface)]"
-					>
-						{#each lots as lot (lot.id)}
-							{@const s = statusLabel(lot)}
-							<li class="group relative flex items-center gap-3 px-4 py-2.5">
-								<div class="min-w-0 flex-1">
-									<p class="truncate">
-										{itemName(lot.item)}
-										{#if lot.opened}<span class="ml-1 text-xs text-[var(--ink-3)]">opened</span
-											>{/if}
-									</p>
-									<p
-										class="text-xs"
-										style:color={s.tone === 'expired'
-											? 'var(--terracotta)'
-											: s.tone === 'soon'
-												? 'var(--saffron)'
-												: 'var(--ink-3)'}
-									>
-										{#if lot.frozenOn}{frozenLabel(lot.frozenOn)}{:else}{s.text}{/if}{lot.store
-											? ` · ${lot.store}`
-											: ''}
-									</p>
-								</div>
-								<span class="text-sm text-[var(--ink-2)] tabular-nums">{lot.left}</span>
-								<!-- Overlaid on hover/focus so hidden buttons take no room from the name. -->
-								<div
-									class="pointer-events-none absolute inset-y-0 right-2 flex items-center gap-1 bg-[var(--surface)] pl-2 opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
-								>
-									<button class="chip" onclick={() => act(lot, { type: 'use', qty: null })}>
-										Used
-									</button>
-									{#if !lot.opened}
-										<button class="chip" onclick={() => act(lot, { type: 'open' })}>Open</button>
-									{/if}
-									{#if lot.location === 'freezer'}
-										<button class="chip" onclick={() => act(lot, { type: 'move', to: 'fridge' })}>
-											Thaw
-										</button>
-									{:else}
-										<button class="chip" onclick={() => act(lot, { type: 'move', to: 'freezer' })}>
-											Freeze
-										</button>
-									{/if}
-								</div>
-							</li>
-						{/each}
-					</ul>
-				{/if}
-			</section>
-		{/each}
+						{p.label} <span>{byPlace[p.id].length}</span>
+					</button>
+				{/each}
+			</div>
+			<button
+				type="button"
+				class="pill ml-auto flex-none"
+				class:active={selecting}
+				aria-pressed={selecting}
+				onclick={() => (selecting ? endSelect() : (selecting = true))}
+			>
+				{selecting ? 'Cancel' : 'Select'}
+			</button>
+		</div>
 	</div>
+
+	{#if !inv}
+		<p class="text-sm text-[var(--ink-3)]">Loading…</p>
+	{:else if none}
+		<p
+			class="rounded-2xl border border-dashed border-[var(--line)] p-6 text-center text-sm text-[var(--ink-3)]"
+		>
+			Nothing matches “{query.trim()}”.
+		</p>
+	{:else}
+		{#snippet group(p: (typeof PLACES)[number])}
+			<PlaceGroup
+				id={p.id}
+				label={p.label}
+				lots={byPlace[p.id]}
+				emptyText={query.trim() ? `No match in the ${p.id}.` : p.empty}
+				{selecting}
+				{selected}
+				ontoggle={toggle}
+				onselectall={selectAll}
+				onact={act}
+				onremove={(l, k) => removeLots([l], k)}
+			/>
+		{/snippet}
+		{#if filter === 'all'}
+			<!-- Fridge on the left; freezer and pantry stacked on the right. -->
+			<div class="grid items-start gap-5 lg:grid-cols-2">
+				{@render group(PLACES[0])}
+				<div class="flex flex-col gap-5">
+					{@render group(PLACES[1])}
+					{@render group(PLACES[2])}
+				</div>
+			</div>
+		{:else}
+			<div class="mx-auto max-w-2xl">
+				{#each shown as p (p.id)}
+					{@render group(p)}
+				{/each}
+			</div>
+		{/if}
+	{/if}
 
 	{#if inv}
 		<footer class="mt-12 text-xs text-[var(--ink-3)] tabular-nums">
@@ -265,20 +234,95 @@
 	{/if}
 </main>
 
+{#if selecting}
+	<SelectBar count={selected.length} onremove={removeSelected} oncancel={endSelect} />
+{/if}
+<UndoToast message={pending.message} onundo={() => pending.undo()} raised={selecting} />
+
 <style>
-	.chip {
+	.pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
 		border-radius: 9999px;
 		border: 1px solid var(--line);
 		background: var(--surface);
-		padding: 0.2rem 0.65rem;
-		font-size: 0.8125rem;
+		padding: 0.4rem 0.9rem;
+		font-size: 0.875rem;
 		color: var(--ink-2);
 		transition:
 			background-color 120ms,
 			color 120ms;
 	}
-	.chip:hover {
+	.pill:hover {
 		background: var(--surface-2);
 		color: var(--ink);
+	}
+	.pill.active {
+		background: var(--sage-bg);
+		border-color: var(--sage);
+		color: var(--sage);
+	}
+	.search {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		max-width: 100%;
+		border-radius: 9999px;
+		background: var(--surface);
+		border: 1px solid var(--line);
+		padding: 0.4rem 0.9rem;
+		color: var(--ink-3);
+	}
+	@media (min-width: 640px) {
+		.search {
+			width: 16rem;
+		}
+	}
+	.search:focus-within {
+		border-color: var(--sage);
+	}
+	.search input {
+		min-width: 0;
+		flex: 1;
+		background: none;
+		font-size: 0.875rem;
+		color: var(--ink);
+		outline: none;
+	}
+	.search input::placeholder {
+		color: var(--ink-3);
+	}
+	.chips {
+		display: flex;
+		gap: 0.35rem;
+		overflow-x: auto;
+		max-width: 100%;
+		padding: 0.1rem;
+	}
+	.fchip {
+		flex: none;
+		border-radius: 9999px;
+		padding: 0.35rem 0.8rem;
+		font-size: 0.875rem;
+		color: var(--ink-2);
+		transition: background-color 120ms;
+	}
+	.fchip span {
+		margin-left: 0.2rem;
+		color: var(--ink-3);
+		font-variant-numeric: tabular-nums;
+	}
+	.fchip:hover {
+		background: var(--surface-2);
+	}
+	.fchip.on {
+		background: var(--sage);
+		color: var(--surface);
+	}
+	.fchip.on span {
+		color: inherit;
+		opacity: 0.8;
 	}
 </style>

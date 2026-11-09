@@ -146,6 +146,7 @@ fn check_cloud(model: &dyn TextModel, out: &mut dyn Write) -> Res<()> {
             Ok(())
         }
         Err(RecipeError::SignIn) => Err("not signed in: run `ollama signin`".into()),
+        Err(e @ RecipeError::NoCredits) => Err(e.to_string().into()),
         Err(e) => Err(format!("the cloud check failed: {e}").into()),
     }
 }

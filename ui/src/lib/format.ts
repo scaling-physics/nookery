@@ -31,6 +31,8 @@ export function statusLabel(lot: Pick<LotView, 'status' | 'days'>): { text: stri
 			return { text: 'Used', tone: 'muted' };
 		case 'binned':
 			return { text: 'Binned', tone: 'muted' };
+		case 'retracted':
+			return { text: 'Removed (entered by mistake)', tone: 'muted' };
 	}
 }
 
@@ -40,9 +42,43 @@ export function urgent(lots: LotView[]): LotView[] {
 	return lots.filter((l) => l.status === 'expired' || l.status === 'use_soon');
 }
 
-/** Title-case the first letter for display ("greek yoghurt" -> "Greek yoghurt"). */
-export function itemName(s: string): string {
-	return s.charAt(0).toUpperCase() + s.slice(1);
+/** Sentence-case an item name for display only ("greek yoghurt" -> "Greek
+ *  yoghurt"); the stored name is never changed. */
+export function displayName(s: string): string {
+	const t = s.trim();
+	return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/** Older name for `displayName`. */
+export const itemName = displayName;
+
+function lowerFirst(s: string): string {
+	return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
+/** The muted one-line meta under a name: "use today · opened · REWE",
+ *  "frozen 12 days ago", "not seen for 15 days". */
+export function lotMeta(
+	lot: Pick<LotView, 'status' | 'days' | 'frozenOn' | 'opened' | 'store'>,
+	today: Date = new Date()
+): string {
+	const parts: string[] = [];
+	const when = lot.frozenOn ? frozenLabel(lot.frozenOn, today) : statusLabel(lot).text;
+	if (when) parts.push(lowerFirst(when));
+	if (lot.opened) parts.push('opened');
+	if (lot.store) parts.push(lot.store);
+	return parts.join(' · ');
+}
+
+/** The colour family of a row's status dot; the freezer is always `ice`. */
+export function dotTone(lot: Pick<LotView, 'status' | 'days' | 'location'>): Tone | 'ice' {
+	return lot.location === 'freezer' ? 'ice' : statusLabel(lot).tone;
+}
+
+/** Case-insensitive "contains" filter on the item name; empty query keeps all. */
+export function matchesQuery(lot: Pick<LotView, 'item'>, query: string): boolean {
+	const q = query.trim().toLowerCase();
+	return q === '' || lot.item.toLowerCase().includes(q);
 }
 
 /** "Frozen today", "Frozen 12 days ago", "Frozen 6 weeks ago" from a
@@ -75,6 +111,11 @@ export function parseFieldError(detail: string): { field: string; line: number |
 	const [field, n] = detail.split(':');
 	return { field, line: n === undefined || n === '' ? null : Number(n) };
 }
+
+/** The message for `cloud_credits` (signed in, but the Ollama account has no
+ *  credits for the cloud model; HTTP 402). `ErrorBanner` adds the link. */
+export const CLOUD_CREDITS =
+	'Your Ollama account has no credits for the cloud model. Add credits at ollama.com/plans, or switch to “On this Mac only” in Settings.';
 
 /** The message for `cloud_sign_in`; `ErrorBanner` adds the Settings link. */
 export const CLOUD_SIGN_IN =

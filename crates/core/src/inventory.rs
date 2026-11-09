@@ -13,6 +13,8 @@ use crate::{Event, EventKind, Location, LotId, Qty, Source};
 pub enum Gone {
     Used,
     Binned,
+    /// Entered by mistake (`EventKind::Retracted`).
+    Retracted,
 }
 
 /// One batch of one thing, as the events left it.
@@ -157,6 +159,7 @@ impl Inventory {
                 }
             }
             EventKind::Binned => lot.gone = Some(Gone::Binned),
+            EventKind::Retracted => lot.gone = Some(Gone::Retracted),
         }
         Ok(())
     }
@@ -321,5 +324,28 @@ mod tests {
         inv.apply(&ev(id, "04T08:00", EventKind::Opened)).unwrap();
         inv.apply(&ev(id, "05T08:00", EventKind::Opened)).unwrap();
         assert_eq!(inv.get(id).unwrap().opened_at, Some(at("04T08:00")));
+    }
+
+    #[test]
+    fn a_retracted_lot_leaves_the_stock_and_takes_no_more_events() {
+        let id = LotId::new();
+        let mut inv = Inventory::default();
+        inv.apply(&ev(
+            id,
+            "03T10:00",
+            EventKind::Acquired {
+                item: "yellow box".into(),
+                qty: Qty::pieces(1),
+                location: Location::Fridge,
+                source: Source::Photo,
+                best_before: None,
+            },
+        ))
+        .unwrap();
+        inv.apply(&ev(id, "03T10:01", EventKind::Retracted))
+            .unwrap();
+        assert_eq!(inv.get(id).unwrap().gone, Some(Gone::Retracted));
+        assert_eq!(inv.in_stock().count(), 0);
+        assert!(inv.apply(&ev(id, "03T10:02", EventKind::Opened)).is_err());
     }
 }

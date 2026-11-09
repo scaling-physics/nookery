@@ -244,7 +244,7 @@
 
 <style>
 	dialog::backdrop {
-		background: rgb(20 18 15 / 0.5);
+		background: var(--backdrop);
 	}
 	.chip {
 		display: inline-block;

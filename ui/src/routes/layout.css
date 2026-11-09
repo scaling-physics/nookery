@@ -1,46 +1,83 @@
 @import 'tailwindcss';
 @import '@fontsource-variable/inter';
 
-/* Colour tokens: warm kitchen neutrals, sage for fresh, saffron for soon,
-   terracotta for expired. Dark mode follows the system. */
+/* Colour tokens: a calm autumn kitchen. Warm oat and parchment
+   neutrals, espresso ink; parsley green for fresh (and the main action),
+   lemon-amber for use soon, rust for expired, dusk blue for the freezer.
+   `--lemon`, `--parsley`, `--pumpkin` are decorative (logo, accents), not
+   status colours. The semantic names (sage, saffron, terracotta, ice) are
+   kept so every screen picks the palette up. Dark mode: a warm, low-lit
+   kitchen, following the system. */
 :root {
-	--bg: #f6f3ec;
-	--surface: #fffdf8;
-	--surface-2: #efe9dd;
-	--line: #e2dacb;
-	--ink: #23201b;
-	--ink-2: #6b6458;
-	--ink-3: #9a9284;
-	--sage: #4f7a5a;
-	--sage-bg: #e3ecdf;
-	--saffron: #a76a0c;
-	--saffron-bg: #f7e8c8;
-	--terracotta: #b04a2f;
-	--terracotta-bg: #f5ddd3;
-	--ice: #3d6f8f;
-	--ice-bg: #dfeaf1;
-	--focus: #4f7a5a;
+	--bg: #f7f0e3;
+	--surface: #fffaf0;
+	--surface-2: #f0e5d1;
+	--line: #e4d5bc;
+	--ink: #2e2519;
+	--ink-2: #6b5b45;
+	--ink-3: #8a7860;
+	--sage: #4a6a38;
+	--sage-bg: #e3e9d3;
+	--saffron: #855a0c;
+	--saffron-bg: #f6e5b5;
+	--terracotta: #a3432a;
+	--terracotta-bg: #f3d8ca;
+	--ice: #46667c;
+	--ice-bg: #dce5e9;
+	--parsley: #3f6b35;
+	--lemon: #e8c14e;
+	--pumpkin: #c46a2d;
+	--c-leaf: #4f7d3f;
+	--c-lemon: #e8c14e;
+	--c-wheat: #c9a15a;
+	--c-rust: #c4553a;
+	--c-blue: #5f89a3;
+	--c-brown: #8a6440;
+	--c-pumpkin: #d9852e;
+	--c-plum: #9a5a78;
+	--c-terra: #b4573a;
+	--c-muted: #8a7860;
+	--c-pea: #a9c97a;
+	--c-milk: #fffdf6;
+	--focus: #4a6a38;
+	--backdrop: rgb(46 37 25 / 0.5);
 	color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
 	:root {
-		--bg: #151412;
-		--surface: #1e1c19;
-		--surface-2: #282521;
-		--line: #34302a;
-		--ink: #efe9de;
-		--ink-2: #b2aa9c;
-		--ink-3: #7d766a;
-		--sage: #8fbf98;
-		--sage-bg: #22302558;
-		--saffron: #e6b45a;
-		--saffron-bg: #3a2e1660;
-		--terracotta: #ea8a6e;
-		--terracotta-bg: #3d211a70;
-		--ice: #8fc0de;
-		--ice-bg: #1d2c3570;
-		--focus: #8fbf98;
+		--bg: #1a1510;
+		--surface: #231d16;
+		--surface-2: #2e261d;
+		--line: #3b3125;
+		--ink: #f1e7d6;
+		--ink-2: #c2b39b;
+		--ink-3: #94846c;
+		--sage: #a6c38c;
+		--sage-bg: #2a3322;
+		--saffron: #e8c063;
+		--saffron-bg: #3b2f17;
+		--terracotta: #ec9372;
+		--terracotta-bg: #40231a;
+		--ice: #9fbccd;
+		--ice-bg: #1f2c33;
+		--parsley: #8fb87a;
+		--lemon: #e8c14e;
+		--pumpkin: #e0874a;
+		--c-leaf: #8fb87a;
+		--c-lemon: #e8c14e;
+		--c-wheat: #d9b26a;
+		--c-rust: #d8765a;
+		--c-blue: #8fb0c6;
+		--c-brown: #b88a5c;
+		--c-pumpkin: #e0974a;
+		--c-plum: #c08aa6;
+		--c-terra: #d98a66;
+		--c-muted: #a59580;
+		--c-pea: #b9d68a;
+		--c-milk: #efe6d4;
+		--focus: #a6c38c;
+		--backdrop: rgb(8 6 3 / 0.62);
 		color-scheme: dark;
 	}
 }
@@ -48,6 +85,12 @@
 html,
 body {
 	background: var(--bg);
+	background-image: radial-gradient(
+		ellipse 80% 50% at 50% -10%,
+		color-mix(in srgb, var(--lemon) 9%, transparent),
+		transparent
+	);
+	background-attachment: fixed;
 	color: var(--ink);
 	font-family: 'Inter Variable', system-ui, sans-serif;
 	font-feature-settings: 'cv11', 'ss01';

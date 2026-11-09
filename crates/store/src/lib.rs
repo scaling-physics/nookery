@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use nookery_core::{AiMode, Alias, Event, Inventory, LedgerError, LotId, CLOUD_MODEL};
-use rusqlite::{params, Connection, Transaction};
+use rusqlite::{params, Connection, Transaction, TransactionBehavior};
 
 /// Folder name, the same as the Tauri app's identifier, so the CLI and the
 /// app share one database.
@@ -142,6 +142,12 @@ pub struct Store {
     conn: Connection,
     inventory: Inventory,
     events: usize,
+    /// The highest event `seq` this inventory includes. The app and the CLI
+    /// share the database: when another process appended, the in-memory
+    /// inventory is stale, and validating against it could write an event
+    /// on a lot that is already gone (which would make the ledger refuse to
+    /// replay). Writes re-check it inside their transaction.
+    last_seq: i64,
 }
 
 impl Store {
@@ -168,6 +174,7 @@ impl Store {
             conn,
             inventory: Inventory::default(),
             events: 0,
+            last_seq: 0,
         };
         store.reload()?;
         Ok(store)
@@ -175,9 +182,52 @@ impl Store {
 
     /// Re-reads every event and rebuilds the inventory.
     pub fn reload(&mut self) -> Result<(), StoreError> {
-        let events = self.events()?;
+        let (events, last) = read_events(&self.conn)?;
         self.inventory = Inventory::replay(&events)?;
         self.events = events.len();
+        self.last_seq = last;
+        Ok(())
+    }
+
+    /// Reloads if another process (the CLI, the app) appended since; true
+    /// if it did. One indexed query, so callers can do it before every read.
+    pub fn refresh(&mut self) -> Result<bool, StoreError> {
+        if max_seq(&self.conn)? == self.last_seq {
+            return Ok(false);
+        }
+        self.reload()?;
+        Ok(true)
+    }
+
+    /// Inside a write transaction (which holds SQLite's write lock): the
+    /// inventory as of the latest event, re-read if another process wrote.
+    fn current(&self, tx: &Transaction) -> Result<(Inventory, usize), StoreError> {
+        if max_seq(tx)? == self.last_seq {
+            return Ok((self.inventory.clone(), self.events));
+        }
+        let (events, _) = read_events(tx)?;
+        Ok((Inventory::replay(&events)?, events.len()))
+    }
+
+    /// Validates `events` against the current inventory and inserts them,
+    /// inside `tx`; returns the new inventory and event count.
+    fn validate_insert(
+        &self,
+        tx: &Transaction,
+        events: &[Event],
+    ) -> Result<(Inventory, usize), StoreError> {
+        let (mut next, count) = self.current(tx)?;
+        for e in events {
+            next.apply(e)?;
+        }
+        insert_events(tx, events)?;
+        Ok((next, count + events.len()))
+    }
+
+    fn committed(&mut self, next: Inventory, count: usize) -> Result<(), StoreError> {
+        self.inventory = next;
+        self.events = count;
+        self.last_seq = max_seq(&self.conn)?;
         Ok(())
     }
 
@@ -191,15 +241,7 @@ impl Store {
 
     /// Every event, oldest first.
     pub fn events(&self) -> Result<Vec<Event>, StoreError> {
-        let mut stmt = self
-            .conn
-            .prepare_cached("SELECT seq, body FROM events ORDER BY seq")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
-        rows.map(|row| {
-            let (seq, body) = row?;
-            serde_json::from_str(&body).map_err(|source| StoreError::Corrupt { seq, source })
-        })
-        .collect()
+        Ok(read_events(&self.conn)?.0)
     }
 
     /// The events of one lot, oldest first.
@@ -220,22 +262,22 @@ impl Store {
     /// Appends events in one transaction, all or nothing: each must be valid
     /// against the inventory as the ones before it leave it.
     pub fn append(&mut self, events: &[Event]) -> Result<(), StoreError> {
-        let next = self.validate(events)?;
-        let tx = self.conn.transaction()?;
-        insert_events(&tx, events)?;
-        tx.commit()?;
-        self.inventory = next;
-        self.events += events.len();
-        Ok(())
+        let (next, count) = {
+            let tx = self.write_tx()?;
+            let r = self.validate_insert(&tx, events)?;
+            tx.commit()?;
+            r
+        };
+        self.committed(next, count)
     }
 
-    /// The inventory after `events`, or the first ledger error.
-    fn validate(&self, events: &[Event]) -> Result<Inventory, StoreError> {
-        let mut next = self.inventory.clone();
-        for e in events {
-            next.apply(e)?;
-        }
-        Ok(next)
+    /// `BEGIN IMMEDIATE`: takes the write lock at once, so nothing can be
+    /// appended between checking the latest event and inserting.
+    fn write_tx(&self) -> Result<Transaction<'_>, StoreError> {
+        Ok(Transaction::new_unchecked(
+            &self.conn,
+            TransactionBehavior::Immediate,
+        )?)
     }
 
     pub fn has_receipt(&self, id: &str) -> Result<bool, StoreError> {
@@ -281,26 +323,26 @@ impl Store {
         if self.has_receipt(&receipt.id)? {
             return Err(StoreError::DuplicateReceipt(receipt.id.clone()));
         }
-        let next = self.validate(events)?;
-        let tx = self.conn.transaction()?;
-        tx.execute(
-            "INSERT INTO receipts (id, store, date, total_cents, imported_at, text)
+        let (next, count) = {
+            let tx = self.write_tx()?;
+            let r = self.validate_insert(&tx, events)?;
+            tx.execute(
+                "INSERT INTO receipts (id, store, date, total_cents, imported_at, text)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                receipt.id,
-                receipt.store,
-                receipt.date.map(|d| d.to_string()),
-                receipt.total_cents,
-                at.to_rfc3339(),
-                receipt.text
-            ],
-        )?;
-        insert_events(&tx, events)?;
-        upsert_aliases(&tx, &receipt.store, learned, at)?;
-        tx.commit()?;
-        self.inventory = next;
-        self.events += events.len();
-        Ok(())
+                params![
+                    receipt.id,
+                    receipt.store,
+                    receipt.date.map(|d| d.to_string()),
+                    receipt.total_cents,
+                    at.to_rfc3339(),
+                    receipt.text
+                ],
+            )?;
+            upsert_aliases(&tx, &receipt.store, learned, at)?;
+            tx.commit()?;
+            r
+        };
+        self.committed(next, count)
     }
 
     /// Appends events and upserts aliases learned for `store` in ONE
@@ -313,14 +355,14 @@ impl Store {
         learned: &[(String, Alias)],
         at: DateTime<Utc>,
     ) -> Result<(), StoreError> {
-        let next = self.validate(events)?;
-        let tx = self.conn.transaction()?;
-        insert_events(&tx, events)?;
-        upsert_aliases(&tx, store, learned, at)?;
-        tx.commit()?;
-        self.inventory = next;
-        self.events += events.len();
-        Ok(())
+        let (next, count) = {
+            let tx = self.write_tx()?;
+            let r = self.validate_insert(&tx, events)?;
+            upsert_aliases(&tx, store, learned, at)?;
+            tx.commit()?;
+            r
+        };
+        self.committed(next, count)
     }
 
     pub fn setting(&self, key: &str) -> Result<Option<String>, StoreError> {
@@ -471,6 +513,26 @@ impl Store {
             _ => Err(StoreError::Ambiguous(short.to_string())),
         }
     }
+}
+
+/// Every event, oldest first, and the highest `seq` (0 when empty).
+fn read_events(conn: &Connection) -> Result<(Vec<Event>, i64), StoreError> {
+    let mut stmt = conn.prepare_cached("SELECT seq, body FROM events ORDER BY seq")?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+    let mut events = Vec::new();
+    let mut last = 0;
+    for row in rows {
+        let (seq, body) = row?;
+        events.push(
+            serde_json::from_str(&body).map_err(|source| StoreError::Corrupt { seq, source })?,
+        );
+        last = seq;
+    }
+    Ok((events, last))
+}
+
+fn max_seq(conn: &Connection) -> Result<i64, StoreError> {
+    Ok(conn.query_row("SELECT COALESCE(MAX(seq), 0) FROM events", [], |r| r.get(0))?)
 }
 
 /// A newer confirmation of the same (store, key) replaces the old alias.
@@ -851,5 +913,41 @@ mod tests {
         s.set_setting(SETTING_CLOUD_MODEL, "gpt-oss:20b-cloud")
             .unwrap();
         assert_eq!(s.cloud_model().unwrap(), "gpt-oss:20b-cloud");
+    }
+
+    #[test]
+    fn a_second_process_writing_is_seen_before_reading_and_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = Store::open_dir(dir.path()).unwrap();
+        let milk = acquire("milk");
+        let id = milk.lot;
+        app.append(&[milk]).unwrap();
+
+        // The CLI, a separate connection, bins it.
+        let mut cli = Store::open_dir(dir.path()).unwrap();
+        cli.append(&[Event {
+            at: Utc::now(),
+            lot: id,
+            kind: EventKind::Binned,
+        }])
+        .unwrap();
+
+        // The app's in-memory view is stale, but writing re-checks: using
+        // a binned lot is refused, and nothing is written.
+        assert!(app.inventory().get(id).unwrap().in_stock());
+        let used = Event {
+            at: Utc::now(),
+            lot: id,
+            kind: EventKind::Used { qty: None },
+        };
+        assert!(matches!(app.append(&[used]), Err(StoreError::Ledger(_))));
+        assert_eq!(Store::open_dir(dir.path()).unwrap().event_count(), 2);
+
+        // And refresh picks the change up for reads.
+        let mut app2 = Store::open_dir(dir.path()).unwrap();
+        assert!(!app2.refresh().unwrap());
+        cli.append(&[acquire("bread")]).unwrap();
+        assert!(app2.refresh().unwrap());
+        assert_eq!(app2.event_count(), 3);
     }
 }
