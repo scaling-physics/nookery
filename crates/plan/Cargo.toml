@@ -1,0 +1,27 @@
+[package]
+name = "nookery-plan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Weekly meal plan and shopping list from stock (nookery)."
+
+[dependencies]
+nookery-core.workspace = true
+nookery-recipes.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+good_lp = { version = "1.15.3", default-features = false, features = ["microlp"] }
+nookery-store = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[features]
+default = ["store"]
+# Store-backed operations (`ops`): favourites, plans, shopping over the docs
+# API. `--no-default-features` is the pure planner without SQLite (Android
+# check: `cargo build -p nookery-plan --no-default-features --target
+# aarch64-linux-android`).
+store = ["dep:nookery-store"]

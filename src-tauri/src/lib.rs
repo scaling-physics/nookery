@@ -1,12 +1,15 @@
 //! The Tauri app: thin commands over `nookery-store`. All rules live in the
 //! crates; this file only converts between them and the UI's types.
 
+mod phone;
 mod photo;
+mod plan;
 mod receipt;
 mod recipes;
 mod settings;
+mod sync;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use chrono::{Local, Utc};
@@ -14,10 +17,12 @@ use nookery_core::{
     category, parse_date, status, use_first, Event, EventKind, FoodCategory, Gone, Location, Lot,
     LotId, Qty, Source, Status,
 };
-use nookery_store::{default_data_dir, Store, StoreError};
+#[cfg(not(mobile))]
+use nookery_store::default_data_dir;
+use nookery_store::{Store, StoreError};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::State;
+use tauri::{Manager, State};
 use tauri_specta::{collect_commands, Builder};
 
 pub struct AppState {
@@ -28,6 +33,8 @@ pub struct AppState {
     last_scan: Mutex<Option<photo::StoredScan>>,
     /// The last recipe suggestions, until replaced.
     last_suggestions: Mutex<Option<recipes::StoredSuggestions>>,
+    /// The phone's model file, loaded model and running download.
+    phone: Arc<phone::PhoneState>,
 }
 
 impl AppState {
@@ -63,6 +70,16 @@ pub enum CommandError {
     CloudCredits,
     /// This receipt is already in the ledger.
     AlreadyImported,
+    /// Sync with the other device failed (detail: a friendly sentence).
+    SyncUnreachable(String),
+    /// The pairing code is wrong (or was replaced on the Mac).
+    SyncBadCode,
+    /// Phone: "On this phone" is chosen but the recipe model isn't
+    /// downloaded yet.
+    PhoneModelMissing,
+    /// Phone: the paired Mac is needed and can't be used (detail: a
+    /// friendly sentence).
+    MacUnreachable(String),
     Internal,
 }
 
@@ -360,9 +377,39 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         recipes::order_templates,
         recipes::suggest_recipes,
         recipes::write_recipe,
+        recipes::recipe_chat,
         settings::get_ai_settings,
         settings::set_ai_settings,
-        settings::check_cloud
+        settings::check_cloud,
+        plan::save_favourite,
+        plan::list_favourites,
+        plan::delete_favourite,
+        plan::update_favourite,
+        plan::cooked,
+        plan::make_plan,
+        plan::get_plan,
+        plan::list_plans,
+        plan::swap_day,
+        plan::set_day_cooked,
+        plan::delete_plan,
+        plan::list_shopping,
+        plan::add_shopping,
+        plan::add_plan_to_shopping,
+        plan::set_shopping_done,
+        plan::delete_shopping,
+        plan::clear_done_shopping,
+        plan::put_away_shopping,
+        sync::get_sync_status,
+        sync::set_sharing,
+        sync::new_pairing_code,
+        sync::pair_with_mac,
+        sync::forget_mac,
+        sync::sync_now,
+        phone::get_phone_ai,
+        phone::set_phone_ai,
+        phone::download_phone_model,
+        phone::cancel_phone_download,
+        phone::delete_phone_model
     ])
 }
 
@@ -378,23 +425,39 @@ pub fn export_bindings(builder: &Builder<tauri::Wry>) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = specta_builder();
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, not(mobile)))]
     export_bindings(&builder);
 
-    let t = Instant::now();
-    let store = Store::open_dir(&default_data_dir()).expect("can't open the Nookery database");
-    let open_ms = t.elapsed().as_secs_f64() * 1e3;
-
-    tauri::Builder::default()
-        .manage(AppState {
-            store: Mutex::new(store),
-            open_ms,
-            last_scan: Mutex::new(None),
-            last_suggestions: Mutex::new(None),
-        })
+    let tauri_builder = tauri::Builder::default();
+    // The camera, for scanning the Mac's pairing QR code (phones only).
+    #[cfg(mobile)]
+    let tauri_builder = tauri_builder.plugin(tauri_plugin_barcode_scanner::init());
+    tauri_builder
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
+            // Desktop: the shared data folder (CLI and app use one file).
+            // Mobile: the app's private folder, from Tauri.
+            #[cfg(mobile)]
+            let dir = {
+                let d = app.path().app_data_dir()?;
+                std::fs::create_dir_all(&d)?;
+                d
+            };
+            #[cfg(not(mobile))]
+            let dir = default_data_dir();
+            let models_dir = dir.join("models");
+            let t = Instant::now();
+            let store = Store::open_dir(&dir)?;
+            let open_ms = t.elapsed().as_secs_f64() * 1e3;
+            app.manage(AppState {
+                store: Mutex::new(store),
+                open_ms,
+                last_scan: Mutex::new(None),
+                last_suggestions: Mutex::new(None),
+                phone: Arc::new(phone::PhoneState::new(models_dir)),
+            });
+            sync::init(app.handle());
             Ok(())
         })
         .run(tauri::generate_context!())

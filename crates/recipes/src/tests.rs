@@ -473,3 +473,109 @@ fn a_402_means_no_cloud_credits_not_a_sign_in_problem() {
     assert!(matches!(e, RecipeError::NoCredits), "{e:?}");
     assert!(e.to_string().contains("ollama.com/plans"));
 }
+
+// ---- chat ----
+
+fn sample_recipe() -> Recipe {
+    parse_recipe(
+        "# Spinach omelette\nServes: 2\nTime: 15 min\n## Ingredients\n- 100 g spinach\n- 3 eggs\n## Steps\n1. Wilt the spinach.\n2. Add the eggs.\n",
+    )
+}
+
+#[test]
+fn chat_prompt_has_recipe_stock_and_bounded_history() {
+    let stock = vec![
+        item("zucchini", "2", Location::Fridge, Urgency::UseSoon),
+        item("old cream", "1", Location::Fridge, Urgency::Expired),
+    ];
+    let history: Vec<ChatTurn> = (0..10)
+        .map(|i| ChatTurn {
+            role: if i % 2 == 0 {
+                ChatRole::User
+            } else {
+                ChatRole::Cook
+            },
+            text: format!("turn number {i}"),
+        })
+        .collect();
+    let p = chat_prompt(&sample_recipe(), &stock, &history, "make it spicier");
+    assert!(p.contains("# Spinach omelette"));
+    assert!(p.contains("- 3 eggs"));
+    assert!(p.contains("USE SOON: zucchini x2"));
+    assert!(!p.contains("old cream"));
+    assert!(!p.contains("turn number 3"));
+    assert!(p.contains("turn number 4") && p.contains("turn number 9"));
+    assert!(p.contains("Me: turn number 4") && p.contains("You: turn number 5"));
+    assert!(p.contains("My message: make it spicier"));
+    // The recipe survives its own text format.
+    assert_eq!(parse_recipe(&sample_recipe().to_text()).steps.len(), 2);
+}
+
+#[test]
+fn chat_question_only() {
+    let a = parse_chat("Yes, you can freeze the leftovers for up to 2 months.\n");
+    assert_eq!(
+        a.reply,
+        "Yes, you can freeze the leftovers for up to 2 months."
+    );
+    assert!(a.recipe.is_none());
+}
+
+#[test]
+fn chat_reply_and_revised_recipe() {
+    let a = parse_chat(
+        "I swapped the halloumi for feta and added zucchini.\n---\n# Spinach feta omelette\nServes: 4\nTime: 20 min\n## Ingredients\n- 200 g spinach\n- 6 eggs\n## Steps\n1. Wilt.\n2. Set.\n",
+    );
+    assert_eq!(
+        a.reply,
+        "I swapped the halloumi for feta and added zucchini."
+    );
+    let r = a.recipe.unwrap();
+    assert_eq!(r.title, "Spinach feta omelette");
+    assert_eq!((r.serves, r.minutes), (Some(4), Some(20)));
+    assert_eq!((r.ingredients.len(), r.steps.len()), (2, 2));
+}
+
+#[test]
+fn chat_sloppy_formatting() {
+    let a = parse_chat(
+        "**Reply:** Done, no oven needed.\n\nHere is the revised recipe:\n\n**# Pan frittata**\n\n**Servings:** 2\n**Ingredients**\n* 4 eggs\n* 1 zucchini\n**Steps**\nStep 1: Fry the zucchini.\nStep 2: Pour in the eggs.\n",
+    );
+    assert!(
+        a.reply.starts_with("Done, no oven needed."),
+        "{:?}",
+        a.reply
+    );
+    let r = a.recipe.unwrap();
+    assert_eq!(r.title, "Pan frittata");
+    assert_eq!(r.serves, Some(2));
+    assert_eq!(r.ingredients, ["4 eggs", "1 zucchini"]);
+    assert_eq!(r.steps, ["Fry the zucchini.", "Pour in the eggs."]);
+}
+
+#[test]
+fn chat_recipe_without_reply_and_half_recipes() {
+    let a =
+        parse_chat("# Veg curry\nServes: 2\n## Ingredients\n- chickpeas\n## Steps\n1. Simmer.\n");
+    assert_eq!(a.reply, "");
+    assert_eq!(a.recipe.unwrap().title, "Veg curry");
+    // Headerless recipe still found.
+    let b = parse_chat("## Ingredients\n- rice\n## Steps\n1. Boil.\n");
+    assert!(b.recipe.is_some());
+    // Ingredients only: not a recipe, the text stays the reply.
+    let c = parse_chat("You could add:\n## Ingredients\n- rice\n");
+    assert!(c.recipe.is_none());
+    assert!(c.reply.contains("You could add"));
+}
+
+#[test]
+fn chat_runs_the_model() {
+    let model = Fake::new(&["Sure.\n---\n# T\n## Ingredients\n- a\n## Steps\n1. b\n"]);
+    let mut seen = String::new();
+    let a = chat(&model, &sample_recipe(), &[], &[], "hi", &mut |t| {
+        seen.push_str(t)
+    })
+    .unwrap();
+    assert_eq!(a.reply, "Sure.");
+    assert!(a.recipe.is_some());
+}

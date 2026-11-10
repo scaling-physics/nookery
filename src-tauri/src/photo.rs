@@ -22,7 +22,7 @@ use specta::Type;
 use tauri::ipc::Channel;
 use tauri::State;
 
-use super::{bad, view, AppState, CommandError, LotView};
+use super::{bad, phone, view, AppState, CommandError, LotView};
 
 /// The last scan, kept until it is applied or replaced.
 pub struct StoredScan {
@@ -282,23 +282,37 @@ pub async fn scan_photo(
     let image = base64::engine::general_purpose::STANDARD
         .decode(image_base64.trim())
         .map_err(|_| bad("image"))?;
-    let (mode, cloud_model) = {
-        let store = state.store()?;
-        (store.ai_mode(SETTING_PHOTOS_AI)?, store.cloud_model()?)
+    let (scan, answered_by, used_cloud) = if cfg!(mobile) {
+        // The phone has no vision model: the paired Mac reads the photo
+        // (with its own AI setting) and the review is built here.
+        let target = phone::mac_target(&state)?;
+        let a = tauri::async_runtime::spawn_blocking(move || {
+            phone::scan_via_mac(&target, &image, place, &mut |done, total| {
+                let _ = on_progress.send(ScanProgress { done, total });
+            })
+        })
+        .await
+        .map_err(|_| CommandError::Internal)??;
+        (a.scan, a.answered_by, a.used_cloud)
+    } else {
+        let (mode, cloud_model) = {
+            let store = state.store()?;
+            (store.ai_mode(SETTING_PHOTOS_AI)?, store.cloud_model()?)
+        };
+        // The model runs on a blocking thread and with the store unlocked.
+        tauri::async_runtime::spawn_blocking(move || {
+            let model = Chosen::for_mode(mode, &cloud_model);
+            let s = run_scan(&model, &image, place, &mut |done, total| {
+                let _ = on_progress.send(ScanProgress {
+                    done: done as u32,
+                    total: total as u32,
+                });
+            })?;
+            Ok::<_, CommandError>((s, model.answered_by(), model.used_cloud()))
+        })
+        .await
+        .map_err(|_| CommandError::Internal)??
     };
-    // The model runs on a blocking thread and with the store unlocked.
-    let (scan, answered_by, used_cloud) = tauri::async_runtime::spawn_blocking(move || {
-        let model = Chosen::for_mode(mode, &cloud_model);
-        let s = run_scan(&model, &image, place, &mut |done, total| {
-            let _ = on_progress.send(ScanProgress {
-                done: done as u32,
-                total: total as u32,
-            });
-        })?;
-        Ok::<_, CommandError>((s, model.answered_by(), model.used_cloud()))
-    })
-    .await
-    .map_err(|_| CommandError::Internal)??;
     let id = LotId::new().to_string();
     let (p, mut review) = {
         let store = state.store()?;

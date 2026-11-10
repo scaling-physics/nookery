@@ -12,6 +12,10 @@
 	import CloudTag from '#lib/CloudTag.svelte';
 	import type { Tone } from '#lib/format.js';
 	import { onDestroy, onMount } from 'svelte';
+	import { onPhone } from '#lib/phone/env.js';
+	import { resizeForMac } from '#lib/phone/image.js';
+	import { syncNowForced } from '#lib/phone/autosync.svelte.js';
+	import { MAC_UNREACHABLE_DEFAULT } from '#lib/phone/messages.js';
 
 	const PLACES = [
 		{ id: 'fridge', label: 'Fridge' },
@@ -66,6 +70,8 @@
 				return CLOUD_SIGN_IN;
 			case 'cloud_credits':
 				return CLOUD_CREDITS;
+			case 'mac_unreachable':
+				return e.detail || MAC_UNREACHABLE_DEFAULT;
 			case 'not_found':
 				return 'That scan is no longer available. Scan the photo again.';
 			case 'bad_input': {
@@ -89,17 +95,23 @@
 		}
 	}
 
+	function readAsDataUrl(file: Blob): Promise<string> {
+		return new Promise((resolve) => {
+			const reader = new FileReader();
+			reader.onload = () => resolve(String(reader.result));
+			reader.readAsDataURL(file);
+		});
+	}
+
 	function onFile(e: Event) {
 		const file = (e.currentTarget as HTMLInputElement).files?.[0];
 		if (!file) return;
 		fileName = file.name;
-		const reader = new FileReader();
-		reader.onload = () => {
-			const url = String(reader.result);
+		// Camera photos are 4000+ px: the phone sends the Mac at most 2000 px.
+		void (onPhone ? resizeForMac(file) : readAsDataUrl(file)).then((url) => {
 			preview = url;
 			base64 = url.slice(url.indexOf(',') + 1);
-		};
-		reader.readAsDataURL(file);
+		});
 	}
 
 	function initRows(r: PhotoReviewView) {
@@ -163,6 +175,8 @@
 		if (r.status === 'ok') {
 			done = r.data;
 			phase = 'done';
+			// The phone's changes go to the Mac now (the Mac may be out of reach: that is fine).
+			if (onPhone) void syncNowForced();
 			return;
 		}
 		if (r.error.kind === 'bad_input') {
@@ -205,9 +219,11 @@
 			<h1 class="text-[26px] font-semibold tracking-tight">Scan a photo</h1>
 			<p class="text-sm text-[var(--ink-2)]">
 				A photo of your fridge, freezer or pantry.
-				{#if photosMode === 'local'}Nothing leaves this Mac.{:else}Cloud may be used: the photo is
-					sent to Ollama's servers. <a href="/settings" class="underline underline-offset-2"
-						>Settings</a
+				{#if onPhone}The photo goes to your Mac over your home Wi-Fi, and nothing goes to the
+					internet unless you chose the cloud for photos on the Mac.{:else if photosMode === 'local'}Nothing
+					leaves this Mac.{:else}Cloud may be used: the photo is sent to Ollama's servers. <a
+						href="/settings"
+						class="underline underline-offset-2">Settings</a
 					>{/if}
 			</p>
 		</div>
@@ -259,6 +275,22 @@
 			</fieldset>
 
 			<div class="flex flex-wrap items-center gap-4">
+				{#if onPhone}
+					<label
+						class="chip cursor-pointer focus-within:outline-2 focus-within:outline-[var(--focus)]"
+						class:disabled={phase === 'scanning'}
+					>
+						Take a photo
+						<input
+							type="file"
+							accept="image/*"
+							capture="environment"
+							class="sr-only"
+							onchange={onFile}
+							disabled={phase === 'scanning'}
+						/>
+					</label>
+				{/if}
 				<label
 					class="chip cursor-pointer focus-within:outline-2 focus-within:outline-[var(--focus)]"
 					class:disabled={phase === 'scanning'}
@@ -294,7 +326,10 @@
 			{#if phase === 'scanning'}
 				<div role="status" class="mt-4" aria-live="polite">
 					<p class="text-sm">
-						{#if progress.total > 0}
+						{#if onPhone}
+							Reading the photo on your Mac…
+							{#if progress.total > 0}(part {Math.min(progress.done + 1, progress.total)} of {progress.total}){/if}
+						{:else if progress.total > 0}
 							Looking at part {Math.min(progress.done + 1, progress.total)} of {progress.total}…
 						{:else}
 							Getting the photo ready…
@@ -308,8 +343,13 @@
 						aria-label="Scan progress"
 					></progress>
 					<p class="mt-2 text-xs text-[var(--ink-3)]">
-						This {photosMode === 'cloud' ? 'runs in the cloud and' : 'runs on this Mac and'} can take
-						up to a minute. Please keep this page open.
+						{#if onPhone}
+							Your Mac does the reading, so it needs to be on and sharing. This can take up to a
+							minute. Please keep this page open.
+						{:else}
+							This {photosMode === 'cloud' ? 'runs in the cloud and' : 'runs on this Mac and'} can take
+							up to a minute. Please keep this page open.
+						{/if}
 					</p>
 				</div>
 			{/if}

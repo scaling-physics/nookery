@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { api } from '#lib/api.js';
+	import SyncPanel from '#lib/SyncPanel.svelte';
+	import PhoneAi from '#lib/phone/PhoneAi.svelte';
+	import { onPhone } from '#lib/phone/env.js';
 	import type { AiModeView, AiSettingsView, CloudCheckView } from '#lib/bindings.js';
 
 	const DEFAULT_MODEL = 'gemma4:31b-cloud';
@@ -112,89 +115,100 @@
 		</p>
 	{/if}
 
-	<div class="flex items-baseline justify-between gap-4">
-		<h2 class="text-[20px] font-semibold tracking-tight">Where the AI runs</h2>
-		<span role="status" class="text-sm text-[var(--sage)]">{saved ? 'Saved' : ''}</span>
-	</div>
-	<p class="mt-0.5 mb-4 text-sm text-[var(--ink-2)]">
-		Everything runs on this Mac unless you choose otherwise, per feature.
-	</p>
+	{#if onPhone}
+		<SyncPanel />
+		<div class="mt-8"><PhoneAi /></div>
+		<p class="mt-6 text-sm text-[var(--ink-2)]">
+			Photo scanning uses your Mac: it reads the photo with the AI setting chosen in Nookery on the
+			Mac.
+		</p>
+	{:else}
+		<div class="flex items-baseline justify-between gap-4">
+			<h2 class="text-[20px] font-semibold tracking-tight">Where the AI runs</h2>
+			<span role="status" class="text-sm text-[var(--sage)]">{saved ? 'Saved' : ''}</span>
+		</div>
+		<p class="mt-0.5 mb-4 text-sm text-[var(--ink-2)]">
+			Everything runs on this Mac unless you choose otherwise, per feature.
+		</p>
 
-	<div class="grid gap-4" class:opacity-60={!loaded}>
-		{#each GROUPS as g (g.key)}
-			<fieldset class="card">
-				<legend class="px-1 text-[15px] font-semibold">{g.title}</legend>
-				<div class="mt-1 grid gap-1">
-					{#each MODES as m (m.id)}
-						<label class="option">
-							<input
-								type="radio"
-								name={g.key}
-								value={m.id}
-								bind:group={settings[g.key]}
-								onchange={save}
-								disabled={!loaded}
-								class="mt-1 h-4 w-4 shrink-0 accent-[var(--sage)]"
-							/>
-							<span>
-								<span class="block text-[15px]">{m.label}</span>
-								<span class="block text-sm text-[var(--ink-2)]">{m.hint}</span>
-							</span>
-						</label>
-					{/each}
-				</div>
-				<p class="mt-3 border-t border-[var(--line)] pt-3 text-sm text-[var(--ink-2)]">
-					<span class="font-medium text-[var(--ink)]">If the cloud is used:</span>
-					{g.sent}
-				</p>
-			</fieldset>
-		{/each}
-
-		<section class="card" aria-labelledby="cloud-h">
-			<h2 id="cloud-h" class="text-[15px] font-semibold">Cloud model</h2>
-			<input
-				type="text"
-				aria-labelledby="cloud-h"
-				aria-describedby="cloud-note"
-				bind:value={settings.cloudModel}
-				onchange={save}
-				placeholder={DEFAULT_MODEL}
-				spellcheck="false"
-				autocapitalize="off"
-				autocomplete="off"
-				disabled={!loaded}
-				class="field mt-2 w-full"
-			/>
-			<p id="cloud-note" class="mt-1.5 text-sm text-[var(--ink-2)]">
-				Ollama Cloud. Needs a free ollama.com account.
-			</p>
-
-			<div class="mt-4 flex flex-wrap items-center gap-3">
-				<button class="chip" onclick={runCheck} disabled={checking || !loaded}>
-					{checking ? 'Checking…' : 'Check cloud'}
-				</button>
-				<div role="status" aria-live="polite" class="text-sm">
-					{#if check?.signedIn}
-						<span class="text-[var(--sage)]"
-							>Signed in, answered in {((check.ms ?? 0) / 1000).toFixed(1)} s</span
-						>
-					{:else if check && check.detail}
-						<span class="text-[var(--terracotta)]">{check.detail}</span>
-					{/if}
-				</div>
-			</div>
-
-			{#if check && !check.signedIn && !check.detail}
-				<div class="mt-3 rounded-xl bg-[var(--saffron-bg)] p-3 text-sm">
-					<p class="text-[var(--ink)]">
-						Not signed in. In Terminal, run <code class="code">{SIGN_IN}</code> (opens the browser to
-						sign in), then check again.
+		<div class="grid gap-4" class:opacity-60={!loaded}>
+			{#each GROUPS as g (g.key)}
+				<fieldset class="card">
+					<legend class="px-1 text-[15px] font-semibold">{g.title}</legend>
+					<div class="mt-1 grid gap-1">
+						{#each MODES as m (m.id)}
+							<label class="option">
+								<input
+									type="radio"
+									name={g.key}
+									value={m.id}
+									bind:group={settings[g.key]}
+									onchange={save}
+									disabled={!loaded}
+									class="mt-1 h-4 w-4 shrink-0 accent-[var(--sage)]"
+								/>
+								<span>
+									<span class="block text-[15px]">{m.label}</span>
+									<span class="block text-sm text-[var(--ink-2)]">{m.hint}</span>
+								</span>
+							</label>
+						{/each}
+					</div>
+					<p class="mt-3 border-t border-[var(--line)] pt-3 text-sm text-[var(--ink-2)]">
+						<span class="font-medium text-[var(--ink)]">If the cloud is used:</span>
+						{g.sent}
 					</p>
-					<button class="chip mt-2" onclick={copy}>{copied ? 'Copied' : 'Copy command'}</button>
+				</fieldset>
+			{/each}
+
+			<section class="card" aria-labelledby="cloud-h">
+				<h2 id="cloud-h" class="text-[15px] font-semibold">Cloud model</h2>
+				<input
+					type="text"
+					aria-labelledby="cloud-h"
+					aria-describedby="cloud-note"
+					bind:value={settings.cloudModel}
+					onchange={save}
+					placeholder={DEFAULT_MODEL}
+					spellcheck="false"
+					autocapitalize="off"
+					autocomplete="off"
+					disabled={!loaded}
+					class="field mt-2 w-full"
+				/>
+				<p id="cloud-note" class="mt-1.5 text-sm text-[var(--ink-2)]">
+					Ollama Cloud. Needs a free ollama.com account.
+				</p>
+
+				<div class="mt-4 flex flex-wrap items-center gap-3">
+					<button class="chip" onclick={runCheck} disabled={checking || !loaded}>
+						{checking ? 'Checking…' : 'Check cloud'}
+					</button>
+					<div role="status" aria-live="polite" class="text-sm">
+						{#if check?.signedIn}
+							<span class="text-[var(--sage)]"
+								>Signed in, answered in {((check.ms ?? 0) / 1000).toFixed(1)} s</span
+							>
+						{:else if check && check.detail}
+							<span class="text-[var(--terracotta)]">{check.detail}</span>
+						{/if}
+					</div>
 				</div>
-			{/if}
-		</section>
-	</div>
+
+				{#if check && !check.signedIn && !check.detail}
+					<div class="mt-3 rounded-xl bg-[var(--saffron-bg)] p-3 text-sm">
+						<p class="text-[var(--ink)]">
+							Not signed in. In Terminal, run <code class="code">{SIGN_IN}</code> (opens the browser to
+							sign in), then check again.
+						</p>
+						<button class="chip mt-2" onclick={copy}>{copied ? 'Copied' : 'Copy command'}</button>
+					</div>
+				{/if}
+			</section>
+		</div>
+
+		<div class="mt-8"><SyncPanel /></div>
+	{/if}
 </main>
 
 <style>

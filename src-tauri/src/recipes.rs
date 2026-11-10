@@ -11,10 +11,10 @@
 //! Errors: `BadInput("name" | "body" | "ids" | "stock" | "index")`.
 
 use chrono::{Local, NaiveDate, Utc};
-use nookery_core::{status, LotId};
+use nookery_core::{category, status, LotId};
 use nookery_recipes::{
-    stock_from, suggest, write_recipe as write_recipe_text, ChosenText, RecipeError, Request,
-    StockItem, Suggestion, Suggestions, TextModel,
+    chat as chat_text, stock_from, suggest, write_recipe as write_recipe_text, ChatRole, ChatTurn,
+    Recipe, RecipeError, Request, StockItem, Suggestion, Suggestions, TextModel,
 };
 use nookery_store::{Store, StoreError, SETTING_RECIPES_AI};
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,8 @@ use specta::Type;
 use tauri::ipc::Channel;
 use tauri::State;
 
-use super::{bad, view, AppState, CommandError, LotView};
+use super::phone::Writer;
+use super::{bad, view, AppState, CommandError, FoodCategoryView, LotView};
 
 /// Used when no template is chosen.
 const DEFAULT_TEMPLATE: &str = "Dinner for two, mostly from what I have.";
@@ -160,6 +161,9 @@ pub struct SuggestionView {
     pub minutes: Option<u32>,
     pub have: Vec<HaveView>,
     pub need: Vec<String>,
+    /// The food category of each `need` entry (same order), for icons and
+    /// illustrations.
+    pub need_categories: Vec<FoodCategoryView>,
     /// Expired lots the idea wanted: a warning, not an ingredient.
     pub expired: Vec<LotView>,
     pub uses_soon: u32,
@@ -198,6 +202,8 @@ pub struct RecipeView {
     pub serves: Option<u32>,
     pub minutes: Option<u32>,
     pub ingredients: Vec<String>,
+    /// The food category of each ingredient line (same order).
+    pub ingredient_categories: Vec<FoodCategoryView>,
     pub steps: Vec<String>,
     /// The model's whole answer, for display if parsing missed something.
     pub raw: String,
@@ -279,6 +285,7 @@ pub fn suggestions_view(
                 })
                 .collect(),
             need: sg.need.clone(),
+            need_categories: sg.need.iter().map(|n| category(n).into()).collect(),
             expired: sg.expired.iter().filter_map(lot_view).collect(),
             uses_soon: sg.uses_soon,
             score: sg.score,
@@ -311,6 +318,7 @@ pub fn write_in(
         title: r.title,
         serves: r.serves,
         minutes: r.minutes,
+        ingredient_categories: r.ingredients.iter().map(|n| category(n).into()).collect(),
         ingredients: r.ingredients,
         steps: r.steps,
         raw: r.raw,
@@ -362,9 +370,9 @@ pub async fn suggest_recipes(
         )
     };
     // The model runs on a blocking thread and with the store unlocked.
+    let model = Writer::for_state(&state, mode, &cloud_model)?;
     let (mut suggestions, stock, request, answered_by, used_cloud) =
         tauri::async_runtime::spawn_blocking(move || {
-            let model = ChosenText::for_mode(mode, &cloud_model);
             let s = suggest(&model, &stock, &request)?;
             Ok::<_, RecipeError>((s, stock, request, model.answered_by(), model.used_cloud()))
         })
@@ -417,14 +425,159 @@ pub async fn write_recipe(
         let store = state.store()?;
         (store.ai_mode(SETTING_RECIPES_AI)?, store.cloud_model()?)
     };
+    let model = Writer::for_state(&state, mode, &cloud_model)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let model = ChosenText::for_mode(mode, &cloud_model);
         let mut r = write_in(&model, &stored, input.index, &mut |t| {
             let _ = on_text.send(t.to_string());
         })?;
         r.model = model.answered_by();
         r.used_cloud = model.used_cloud();
         Ok(r)
+    })
+    .await
+    .map_err(|_| CommandError::Internal)?
+}
+
+// ---- chat about a recipe ----
+
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatRecipeInput {
+    pub title: String,
+    pub serves: Option<u32>,
+    pub minutes: Option<u32>,
+    pub ingredients: Vec<String>,
+    pub steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatRoleView {
+    User,
+    Cook,
+}
+
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatTurnInput {
+    pub role: ChatRoleView,
+    pub text: String,
+}
+
+#[derive(Debug, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecipeChatInput {
+    /// The recipe as it is now (a suggestion's or a saved favourite's).
+    pub recipe: ChatRecipeInput,
+    pub history: Vec<ChatTurnInput>,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecipeChatView {
+    pub reply: String,
+    /// The whole revised recipe, when the cook changed it.
+    pub recipe: Option<RecipeView>,
+    pub model: String,
+    pub used_cloud: bool,
+    pub ms: f64,
+}
+
+/// One chat turn against `model`. Touches no store.
+pub fn chat_in(
+    model: &dyn TextModel,
+    stock: &[StockItem],
+    input: &RecipeChatInput,
+    on_text: &mut dyn FnMut(&str),
+) -> Result<RecipeChatView, CommandError> {
+    let message = input.message.trim();
+    if message.is_empty() {
+        return Err(bad("message"));
+    }
+    let recipe = Recipe {
+        title: input.recipe.title.clone(),
+        serves: input.recipe.serves,
+        minutes: input.recipe.minutes,
+        ingredients: input.recipe.ingredients.clone(),
+        steps: input.recipe.steps.clone(),
+        raw: String::new(),
+    };
+    let history: Vec<ChatTurn> = input
+        .history
+        .iter()
+        .map(|t| ChatTurn {
+            role: match t.role {
+                ChatRoleView::User => ChatRole::User,
+                ChatRoleView::Cook => ChatRole::Cook,
+            },
+            text: t.text.clone(),
+        })
+        .collect();
+    let t = std::time::Instant::now();
+    let a = chat_text(model, &recipe, stock, &history, message, on_text)?;
+    let revised = a.recipe.is_some();
+    let recipe = a.recipe.map(|mut r| {
+        if r.title.trim().is_empty() {
+            r.title = recipe.title.clone();
+        }
+        RecipeView {
+            title: r.title,
+            serves: r.serves,
+            minutes: r.minutes,
+            ingredient_categories: r.ingredients.iter().map(|n| category(n).into()).collect(),
+            ingredients: r.ingredients,
+            steps: r.steps,
+            raw: r.raw,
+            model: model.name(),
+            used_cloud: false,
+            ms: 0.0,
+        }
+    });
+    let reply = if a.reply.is_empty() && revised {
+        "Done, I updated the recipe.".to_string()
+    } else {
+        a.reply
+    };
+    Ok(RecipeChatView {
+        reply,
+        recipe,
+        model: model.name(),
+        used_cloud: false,
+        ms: t.elapsed().as_secs_f64() * 1e3,
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn recipe_chat(
+    state: State<'_, AppState>,
+    input: RecipeChatInput,
+    on_text: Channel<String>,
+) -> Result<RecipeChatView, CommandError> {
+    let today = Local::now().date_naive();
+    // Same model choice as `write_recipe`; the store is unlocked while it runs.
+    let (stock, mode, cloud_model) = {
+        let store = state.store()?;
+        (
+            stock_from(store.inventory().in_stock(), today),
+            store.ai_mode(SETTING_RECIPES_AI)?,
+            store.cloud_model()?,
+        )
+    };
+    let model = Writer::for_state(&state, mode, &cloud_model)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut v = chat_in(&model, &stock, &input, &mut |t| {
+            let _ = on_text.send(t.to_string());
+        })?;
+        v.model = model.answered_by();
+        v.used_cloud = model.used_cloud();
+        if let Some(r) = v.recipe.as_mut() {
+            r.model = v.model.clone();
+            r.used_cloud = v.used_cloud;
+            r.ms = v.ms;
+        }
+        Ok(v)
     })
     .await
     .map_err(|_| CommandError::Internal)?
@@ -634,5 +787,47 @@ mod tests {
         let empty = Store::open_in_memory().unwrap();
         let e = go(&empty, none(Ok(IDEAS.into())), None);
         assert_eq!(field(e), "stock");
+    }
+
+    #[test]
+    fn chat_answers_questions_and_revises_recipes() {
+        let input = |msg: &str| RecipeChatInput {
+            recipe: ChatRecipeInput {
+                title: "Spinach omelette".into(),
+                serves: Some(2),
+                minutes: Some(15),
+                ingredients: vec!["3 eggs".into()],
+                steps: vec!["Cook.".into()],
+            },
+            history: vec![ChatTurnInput {
+                role: ChatRoleView::User,
+                text: "hi".into(),
+            }],
+            message: msg.into(),
+        };
+        let stock = stock_from(stocked().inventory().in_stock(), today());
+        let q = Fake(Mutex::new(vec![Ok("Yes, it freezes well.".into())]));
+        let mut streamed = String::new();
+        let v = chat_in(&q, &stock, &input("Can I freeze it?"), &mut |t| {
+            streamed.push_str(t)
+        })
+        .unwrap();
+        assert_eq!(v.reply, "Yes, it freezes well.");
+        assert!(v.recipe.is_none());
+        assert_eq!(streamed, "Yes, it freezes well.");
+
+        let r = Fake(Mutex::new(vec![Ok(
+            "# \n## Ingredients\n- 3 eggs\n- 1 zucchini\n## Steps\n1. Cook.\n".into(),
+        )]));
+        let v = chat_in(&r, &stock, &input("use the zucchini too"), &mut |_| {}).unwrap();
+        let rec = v.recipe.unwrap();
+        assert_eq!(rec.title, "Spinach omelette");
+        assert_eq!(rec.ingredient_categories.len(), 2);
+        assert!(v.reply.contains("updated"), "{:?}", v.reply);
+
+        assert!(matches!(
+            chat_in(&q, &stock, &input("  "), &mut |_| {}),
+            Err(CommandError::BadInput(f)) if f == "message"
+        ));
     }
 }

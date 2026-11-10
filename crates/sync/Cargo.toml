@@ -1,0 +1,27 @@
+[package]
+name = "nookery-sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Encrypted Mac <-> phone sync over the home network (nookery)."
+
+[dependencies]
+nookery-core.workspace = true
+nookery-store.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+chacha20poly1305 = "0.11"
+getrandom = "0.3"
+hkdf = "0.13"
+sha2 = "0.11"
+zeroize = "1"
+nookery-recipes = { version = "0.1.0", path = "../recipes" }
+dirs.workspace = true
+nookery-vision = { version = "0.1.0", path = "../vision" }
+base64 = "0.23.1"
+
+[dev-dependencies]
+image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
+tempfile.workspace = true

@@ -114,7 +114,8 @@
 			<h1 class="text-[20px] font-semibold tracking-tight">Kitchen</h1>
 			<p class="text-sm text-[var(--ink-2)]">
 				{#if inv}
-					{visible.length} things in stock{urgent(visible).length
+					{visible.length}
+					{visible.length === 1 ? 'thing' : 'things'} in stock{urgent(visible).length
 						? ` · ${urgent(visible).length} to use first`
 						: ''}
 				{:else}

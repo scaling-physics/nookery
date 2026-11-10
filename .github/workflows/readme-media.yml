@@ -1,0 +1,79 @@
+# Re-records the GIFs and screenshots in the README from the UI's SYNTHETIC
+# sample data (no real kitchen data, no secrets) and commits them back to the
+# same branch when they changed. Local equivalent: `pnpm readme:media`.
+name: README media
+
+on:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - 'docs/media/**'
+
+# One run per branch; a newer push replaces a run that is still going.
+concurrency:
+  group: readme-media-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  media:
+    # Never react to our own commit.
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cheap check first: the media only depend on the UI sources, the
+      # capture script, the assets and the lockfile. If their hash equals the
+      # one stored next to the media, there is nothing to record.
+      - name: Did anything the media depend on change?
+        id: hash
+        run: |
+          now=$(node scripts/readme-media/capture.mjs --hash)
+          old=$(cat docs/media/.source-hash 2>/dev/null || true)
+          echo "now=$now old=$old"
+          if [ "$now" = "$old" ]; then echo "stale=false" >> "$GITHUB_OUTPUT"; else echo "stale=true" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: pnpm/action-setup@v4
+        if: steps.hash.outputs.stale == 'true'
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v4
+        if: steps.hash.outputs.stale == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - name: Install
+        if: steps.hash.outputs.stale == 'true'
+        run: pnpm -C ui install --frozen-lockfile
+
+      - name: Install Chromium for Playwright
+        if: steps.hash.outputs.stale == 'true'
+        run: pnpm -C ui exec playwright install --with-deps chromium
+
+      - name: Record the media
+        if: steps.hash.outputs.stale == 'true'
+        run: pnpm readme:media
+
+      - name: Commit changed media
+        if: steps.hash.outputs.stale == 'true'
+        run: |
+          git add docs/media
+          if git diff --cached --quiet; then
+            echo "Media unchanged."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs: refresh README media [skip ci]"
+          # If someone pushed while we were recording, sit on top of it.
+          git pull --rebase origin "${{ github.ref_name }}"
+          git push origin "HEAD:${{ github.ref_name }}"

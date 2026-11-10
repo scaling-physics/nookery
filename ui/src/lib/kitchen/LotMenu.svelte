@@ -3,6 +3,7 @@
 	import type { LotAction, LotView } from '#lib/bindings.js';
 	import type { RemovalKind } from './pending.svelte.js';
 	import { displayName } from '#lib/format.js';
+	import { pushBack } from '#lib/back.svelte.js';
 	import Icon from './Icon.svelte';
 
 	let {
@@ -45,6 +46,12 @@
 		}
 		items()[0]?.focus();
 	}
+
+	let offBack: (() => void) | undefined;
+	$effect(() => {
+		if (open) offBack = pushBack(() => hide(false));
+		return () => offBack?.();
+	});
 
 	function hide(refocus = true) {
 		open = false;
@@ -183,6 +190,12 @@
 		transition:
 			background-color 120ms,
 			color 120ms;
+	}
+	@media (max-width: 639px) {
+		.more {
+			width: 2.75rem;
+			height: 2.75rem;
+		}
 	}
 	.more:hover,
 	.more[aria-expanded='true'] {

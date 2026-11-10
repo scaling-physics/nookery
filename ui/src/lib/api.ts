@@ -5,6 +5,23 @@
 import { Channel } from '@tauri-apps/api/core';
 import { commands } from './bindings.js';
 import type {
+	AddedToShoppingView,
+	AddShoppingInput,
+	CookedInput,
+	CookedView,
+	DayRef,
+	DayView,
+	FavouriteView,
+	MakePlanInput,
+	PlanResultView,
+	PlanSummaryView,
+	PlanView,
+	PutAwayView,
+	SaveFavouriteInput,
+	SetDayCookedInput,
+	SetShoppingDoneInput,
+	ShoppingItemView,
+	ShoppingView,
 	AiModeView,
 	AddInput,
 	AiSettingsView,
@@ -18,17 +35,25 @@ import type {
 	LotView,
 	PhotoItemView,
 	PhotoReviewView,
+	RecipeChatInput,
+	RecipeChatView,
 	RecipeView,
 	ReceiptImportInput,
 	ReceiptLineView,
 	ReceiptView,
 	SaveTemplateInput,
+	DownloadProgress,
+	PhoneAiPref,
+	PhoneAiView,
 	ScanProgress,
+	SyncStatusView,
 	SuggestInput,
 	SuggestionsView,
 	TemplateView,
 	WriteRecipeInput
 } from './bindings.js';
+
+import { addDays, groupShopping, nextMonday, isoDate } from './plan/helpers.js';
 
 export type Result<T> = { status: 'ok'; data: T } | { status: 'error'; error: CommandError };
 
@@ -43,6 +68,16 @@ export function progressChannel(handler: (p: ScanProgress) => void): Channel<Sca
 		return c;
 	}
 	return { onmessage: handler } as unknown as Channel<ScanProgress>;
+}
+
+/** A progress channel for `downloadPhoneModel` (same idea as `progressChannel`). */
+export function downloadChannel(handler: (p: DownloadProgress) => void): Channel<DownloadProgress> {
+	if (inTauri) {
+		const c = new Channel<DownloadProgress>();
+		c.onmessage = handler;
+		return c;
+	}
+	return { onmessage: handler } as unknown as Channel<DownloadProgress>;
 }
 
 /** A text channel for `writeRecipe`: a real Tauri Channel in the app, a plain
@@ -314,6 +349,7 @@ function fakeApi() {
 				minutes: 15,
 				have: named('spinach', 'eggs', 'halloumi'),
 				need: [],
+				needCategories: [],
 				expired: [],
 				usesSoon: 1,
 				score: 6
@@ -325,6 +361,7 @@ function fakeApi() {
 				minutes: 30,
 				have: named('spinach', 'greek yoghurt', 'chickpeas', 'basmati rice'),
 				need: ['garam masala', 'onion'],
+				needCategories: ['spices', 'vegetables'],
 				expired: lots.filter((l) => l.item === 'cream'),
 				usesSoon: 2,
 				score: 6
@@ -336,6 +373,7 @@ function fakeApi() {
 				minutes: 25,
 				have: named('minced beef', 'peas', 'basmati rice', 'greek yoghurt'),
 				need: ['soy sauce'],
+				needCategories: ['sauces'],
 				expired: [],
 				usesSoon: 1,
 				score: 5
@@ -347,6 +385,7 @@ function fakeApi() {
 				minutes: 35,
 				have: named('halloumi', 'chickpeas', 'olive oil'),
 				need: ['lemon', 'smoked paprika'],
+				needCategories: ['fruit', 'spices'],
 				expired: [],
 				usesSoon: 0,
 				score: 1
@@ -381,6 +420,7 @@ function fakeApi() {
 			.split('\n')
 			.filter((l) => l.startsWith('- '))
 			.map((l) => l.slice(2)),
+		ingredientCategories: ['vegetables', 'eggs', 'dairy', 'cheese', 'sauces', 'spices'],
 		steps: raw
 			.split('\n')
 			.filter((l) => /^\d+\. /.test(l))
@@ -388,9 +428,242 @@ function fakeApi() {
 		raw,
 		ms
 	});
+
+	// SYNTHETIC favourites, plans and shopping (in memory, gone on reload).
+	let favourites: FavouriteView[] = [];
+	let shopping: ShoppingItemView[] = [];
+	let shoppingId = 0;
+	const plans = new Map<string, PlanView>();
+	const FRESH = new Set([
+		'vegetables',
+		'fruit',
+		'herbs',
+		'dairy',
+		'cheese',
+		'eggs',
+		'meat',
+		'fish'
+	]);
+	const categoryOf = (name: string): LotView['category'] => {
+		const n = name.toLowerCase();
+		const known = CATEGORY[n];
+		if (known) return known;
+		if (/onion|leek|kale|tomato|pepper|cucumber|garlic|lettuce|mushroom/.test(n))
+			return 'vegetables';
+		if (/lemon|apple|banana|lime|orange/.test(n)) return 'fruit';
+		if (/basil|parsley|coriander|dill|mint/.test(n)) return 'herbs';
+		if (/masala|paprika|cumin|chilli|spice/.test(n)) return 'spices';
+		if (/soy|sauce|vinegar|tahini/.test(n)) return 'sauces';
+		if (/cheese|feta|parmesan/.test(n)) return 'cheese';
+		if (/bread|bun/.test(n)) return 'bread';
+		return 'other';
+	};
+	const shoppingView = (): ShoppingView => ({
+		groups: groupShopping(shopping),
+		open: shopping.filter((i) => !i.done).length,
+		done: shopping.filter((i) => i.done).length
+	});
+	const planDays = (week: string, count: number): { days: DayView[]; spares: DayView[] } => {
+		const dish = (
+			name: string,
+			why: string,
+			minutes: number,
+			have: string[],
+			need: string[],
+			soon: number
+		): DayView => ({
+			date: '',
+			name,
+			why,
+			minutes,
+			have: named(...have),
+			need,
+			needCategories: need.map(categoryOf),
+			usesSoon: soon,
+			cooked: false
+		});
+		const all = [
+			dish(
+				'Spinach and halloumi omelette',
+				'Uses the spinach that needs eating first.',
+				15,
+				['spinach', 'Eggs', 'halloumi'],
+				[],
+				1
+			),
+			dish(
+				'Creamy spinach and chickpea curry',
+				'Yoghurt and spinach are close to their date.',
+				30,
+				['greek yoghurt', 'chickpeas', 'basmati rice'],
+				['garam masala', 'onion'],
+				1
+			),
+			dish(
+				'Beef and pea rice bowl',
+				'The freezer mince and peas, with yoghurt on the side.',
+				25,
+				['minced beef', 'Peas', 'basmati rice'],
+				['soy sauce'],
+				0
+			),
+			dish(
+				'Pesto spaghetti with broccoli',
+				'The opened pesto wants finishing.',
+				20,
+				['pesto', 'spaghetti', 'broccoli'],
+				['parmesan'],
+				1
+			),
+			dish(
+				'Lentil and carrot soup',
+				'Cheap, filling, and uses the carrots.',
+				35,
+				['lentils', 'carrots'],
+				['onion', 'vegetable stock'],
+				0
+			),
+			dish(
+				'Halloumi and chickpea traybake',
+				'One tray; nothing much to buy.',
+				35,
+				['halloumi', 'chickpeas', 'olive oil'],
+				['lemon'],
+				0
+			),
+			dish(
+				'Cheddar and leftover rice bake',
+				'Rescues the leftover rice.',
+				25,
+				['Cheddar', 'leftover rice', 'Eggs'],
+				['spring onion'],
+				1
+			),
+			dish(
+				'Buckwheat porridge with honey',
+				'A light supper.',
+				15,
+				['Buckwheat', 'milk', 'honey'],
+				['apple'],
+				0
+			),
+			dish('Oat pancakes', 'Eggs, oats and milk.', 20, ['oats', 'Eggs', 'milk'], ['banana'], 0)
+		];
+		const days = all.slice(0, count).map((d, i) => ({ ...d, date: addDays(week, i) }));
+		return { days, spares: all.slice(count) };
+	};
+	const fakePlanView = (p: PlanView): PlanView => structuredClone(p);
 	const suggestionSets = new Map<string, SuggestionsView>();
+	const phone =
+		typeof location !== 'undefined' && new URLSearchParams(location.search).has('phone');
+	const sync: {
+		sharing: boolean;
+		code: string;
+		peer: string | null;
+		last: SyncStatusView['last'];
+		clash: boolean;
+	} = {
+		sharing: false,
+		code: 'K7QX-2MDA-PW4R-HNBE-3TYC-ZUA2-MD',
+		peer: null,
+		last: null,
+		clash: true
+	};
+	const syncView = (): SyncStatusView => ({
+		role: phone ? 'phone' : 'mac',
+		sharing: sync.sharing,
+		addresses: phone ? [] : ['192.168.1.20'],
+		port: 47480,
+		code: phone ? null : sync.code,
+		link:
+			!phone && sync.sharing
+				? `nookery://pair?code=${sync.code}&addr=192.168.1.20%3A47480&name=Mac`
+				: null,
+		qr: !phone && sync.sharing ? fakeQr() : null,
+		peer: phone ? sync.peer : null,
+		peerName: phone && sync.peer ? 'Mac' : null,
+		last: sync.last
+	});
+	// A stand-in picture for the QR code (not scannable; the app draws a real one).
+	const fakeQr = () => {
+		const n = 25;
+		let rects = '';
+		let x = 7;
+		for (let r = 0; r < n; r++)
+			for (let c = 0; c < n; c++) {
+				x = (x * 1103515245 + 12345) & 0x7fffffff;
+				const finder = (r < 8 && (c < 8 || c > n - 9)) || (r > n - 9 && c < 8);
+				if (
+					finder
+						? r % 7 === 0 || c % 7 === 0 || (r % 7 > 1 && r % 7 < 5 && c % 7 > 1 && c % 7 < 5)
+						: x % 3 === 0
+				)
+					rects += `<rect x="${c + 2}" y="${r + 2}" width="1" height="1"/>`;
+			}
+		return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n + 4} ${n + 4}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fffdf8"/><g fill="#2a2118">${rects}</g></svg>`;
+	};
+	const phoneAi: { pref: PhoneAiPref; downloaded: boolean; part: number; running: boolean } = {
+		pref: 'auto',
+		downloaded: false,
+		part: 0,
+		running: false
+	};
+	let stopDownload = false;
+	const MODEL_BYTES = 2_497_281_120;
+	const phoneAiView = (): PhoneAiView => ({
+		available: phone,
+		pref: phoneAi.pref,
+		paired: !!sync.peer,
+		model: {
+			downloaded: phoneAi.downloaded,
+			bytes: phoneAi.downloaded ? MODEL_BYTES : 0,
+			partialBytes: phoneAi.part,
+			freeBytes: 41_300_000_000,
+			expectedBytes: MODEL_BYTES,
+			downloading: phoneAi.running
+		}
+	});
 	const ok = <T>(data: T): Promise<Result<T>> => Promise.resolve({ status: 'ok', data });
 	return {
+		// ---- the phone's own AI (SYNTHETIC; `?phone` shows it) ----
+		getPhoneAi: (): Promise<Result<PhoneAiView>> => ok(phoneAiView()),
+		setPhoneAi: (pref: PhoneAiPref): Promise<Result<PhoneAiView>> => {
+			phoneAi.pref = pref;
+			return ok(phoneAiView());
+		},
+		downloadPhoneModel: async (
+			onProgress: Channel<DownloadProgress>
+		): Promise<Result<PhoneAiView>> => {
+			if (!sync.peer)
+				return {
+					status: 'error',
+					error: { kind: 'mac_unreachable', detail: 'No Mac is paired yet.' }
+				};
+			phoneAi.running = true;
+			stopDownload = false;
+			while (phoneAi.part < MODEL_BYTES) {
+				await new Promise((r) => setTimeout(r, 120));
+				if (stopDownload) {
+					phoneAi.running = false;
+					return { status: 'error', error: { kind: 'bad_input', detail: 'cancelled' } };
+				}
+				phoneAi.part = Math.min(MODEL_BYTES, phoneAi.part + 60_000_000);
+				onProgress.onmessage({ done: phoneAi.part, total: MODEL_BYTES });
+			}
+			phoneAi.running = false;
+			phoneAi.downloaded = true;
+			phoneAi.part = 0;
+			return ok(phoneAiView()).then((r) => r);
+		},
+		cancelPhoneDownload: (): Promise<Result<null>> => {
+			stopDownload = true;
+			return ok(null);
+		},
+		deletePhoneModel: (): Promise<Result<PhoneAiView>> => {
+			phoneAi.downloaded = false;
+			phoneAi.part = 0;
+			return ok(phoneAiView());
+		},
 		getInventory: (): Promise<Result<InventoryView>> =>
 			ok({ lots: [...lots], events: lots.length, openMs: 0.4, queryMs: 0.05 }),
 		addItem: (input: AddInput): Promise<Result<LotView>> => {
@@ -485,6 +758,329 @@ function fakeApi() {
 			}
 			return { status: 'ok', data: parseSample(raw, item.name, 2000) };
 		},
+		// SYNTHETIC cook: canned answers, no model. Questions get a plain reply;
+		// requests for a change also get a revised recipe.
+		recipeChat: async (
+			input: RecipeChatInput,
+			onText: Channel<string>
+		): Promise<Result<RecipeChatView>> => {
+			const m = input.message.toLowerCase();
+			if (!m.trim()) return fail('bad_input', 'message');
+			const r = input.recipe;
+			const change = (
+				reply: string,
+				title: string,
+				ing: string[],
+				steps: string[],
+				serves = r.serves
+			) => ({
+				reply,
+				raw:
+					`${reply}\n---\n# ${title}\nServes: ${serves ?? 2}\nTime: ${r.minutes ?? 25} min\n## Ingredients\n` +
+					ing.map((i) => `- ${i}`).join('\n') +
+					'\n## Steps\n' +
+					steps.map((s, i) => `${i + 1}. ${s}`).join('\n'),
+				title,
+				ing,
+				steps,
+				serves
+			});
+			let a: ReturnType<typeof change> | { reply: string; raw: string };
+			if (/vegetarian|vegan|meat/.test(m)) {
+				a = change(
+					'Easy: I swapped the cheese for chickpeas so it stays hearty and meat-free.',
+					r.title.replace(/halloumi/i, 'chickpea'),
+					[
+						...r.ingredients.filter((i) => !/halloumi|beef|chicken/i.test(i)),
+						'1 tin chickpeas, drained'
+					],
+					r.steps.map((s) => s.replace(/halloumi/gi, 'chickpeas'))
+				);
+			} else if (/people|serves|for \d/.test(m)) {
+				const n = Number(m.match(/\d+/)?.[0] ?? 4);
+				a = change(
+					`Scaled up for ${n} people: I doubled the amounts and added a few minutes.`,
+					r.title,
+					r.ingredients.map((i) => i.replace(/^(\d+)/, (d) => String(Number(d) * 2))),
+					r.steps,
+					n
+				);
+			} else if (/oven|no oven/.test(m)) {
+				a = change(
+					'No oven needed: everything happens in one pan on the hob.',
+					r.title,
+					r.ingredients,
+					[
+						...r.steps.slice(0, -1),
+						'Cover the pan and let it finish gently on low heat for 5 minutes.'
+					]
+				);
+			} else if (/fewer|simpler|less/.test(m)) {
+				a = change(
+					'Simplified: down to the essentials, same idea.',
+					r.title,
+					r.ingredients.slice(0, Math.max(2, r.ingredients.length - 2)),
+					r.steps
+				);
+			} else if (/spic|hot|chilli|zucchini|use the/.test(m)) {
+				a = change(
+					'Spiced it up with chilli flakes and a pinch of cumin.',
+					r.title,
+					[...r.ingredients, '1 tsp chilli flakes', '1/2 tsp cumin'],
+					r.steps.map((s, i) => (i === 0 ? `${s} Add the chilli and cumin now.` : s))
+				);
+			} else if (/swap|instead|replace|substitut/.test(m)) {
+				const reply =
+					'From your kitchen: feta or a firm goat cheese works for halloumi, and spinach swaps happily for chard or kale. Greek yoghurt stands in for cream.';
+				a = { reply, raw: reply };
+			} else if (/freez/.test(m)) {
+				const reply =
+					'Yes. Let it cool, then freeze in a sealed box for up to 2 months. Reheat gently in a pan; the eggs stay a little firmer.';
+				a = { reply, raw: reply };
+			} else {
+				const reply =
+					'Good question. I would keep it simple and taste as you go; the recipe is forgiving. Tell me what you would like to change and I will rewrite it.';
+				a = { reply, raw: reply };
+			}
+			const chunks = a.raw.match(/[\s\S]{1,12}/g) ?? [];
+			for (const c of chunks) {
+				await new Promise((res) => setTimeout(res, 1600 / chunks.length));
+				onText.onmessage(c);
+			}
+			const revised: RecipeView | null =
+				'ing' in a
+					? {
+							...answeredBy(ai.recipes),
+							title: a.title,
+							serves: a.serves,
+							minutes: r.minutes,
+							ingredients: a.ing,
+							ingredientCategories: a.ing.map((i) =>
+								categoryOf(i.replace(/^[\d./,\s]*(g|kg|ml|l|tbsp|tsp|tin)?\s+/i, ''))
+							),
+							steps: a.steps,
+							raw: a.raw,
+							ms: 1600
+						}
+					: null;
+			return {
+				status: 'ok',
+				data: { reply: a.reply, recipe: revised, ...answeredBy(ai.recipes), ms: 1600 }
+			};
+		},
+		saveFavourite: (input: SaveFavouriteInput): Promise<Result<FavouriteView>> => {
+			const title = input.title.trim();
+			if (!title) return fail('bad_input', 'title');
+			const same = favourites.find((f) => f.recipe.title.toLowerCase() === title.toLowerCase());
+			if (same) return ok(same);
+			const f: FavouriteView = {
+				id: `fav-${favourites.length + 1}`,
+				recipe: {
+					title,
+					serves: input.serves,
+					minutes: input.minutes,
+					ingredients: input.ingredients,
+					ingredientCategories: input.ingredients.map((i) =>
+						categoryOf(i.replace(/^[\d.,\s]*(g|kg|ml|l|tbsp|tsp)?\s+/i, ''))
+					),
+					steps: input.steps
+				},
+				why: input.why,
+				savedAt: new Date().toISOString(),
+				cooked: 0
+			};
+			favourites = [f, ...favourites];
+			return ok(f);
+		},
+		updateFavourite: (id: string, input: SaveFavouriteInput): Promise<Result<FavouriteView>> => {
+			const f = favourites.find((x) => x.id === id);
+			if (!f) return fail('not_found');
+			const title = input.title.trim();
+			if (!title) return fail('bad_input', 'title');
+			f.recipe = {
+				title,
+				serves: input.serves,
+				minutes: input.minutes,
+				ingredients: [...input.ingredients],
+				ingredientCategories: input.ingredients.map((i) =>
+					categoryOf(i.replace(/^[\d.,\s]*(g|kg|ml|l|tbsp|tsp)?\s+/i, ''))
+				),
+				steps: [...input.steps]
+			};
+			return ok(structuredClone(f));
+		},
+		listFavourites: (): Promise<Result<FavouriteView[]>> => ok(structuredClone(favourites)),
+		deleteFavourite: (id: string): Promise<Result<null>> => {
+			if (!favourites.some((f) => f.id === id)) return fail('not_found');
+			favourites = favourites.filter((f) => f.id !== id);
+			return ok(null);
+		},
+		cooked: (input: CookedInput): Promise<Result<CookedView>> => {
+			// Check everything first, then write (all or nothing).
+			const plan: { i: number; qty: string | null }[] = [];
+			for (const [k, it] of input.items.entries()) {
+				const i = lots.findIndex((l) => l.short === it.lot || l.id === it.lot);
+				if (i < 0) return fail('bad_input', `lot:${k}`);
+				if (it.amount !== null) {
+					const m = /^\s*(\d+(?:[.,]\d+)?)\s*([a-z]*)\s*$/i.exec(it.amount);
+					const l = /^\s*(\d+(?:[.,]\d+)?)\s*([a-z]*)\s*$/i.exec(lots[i].left);
+					const unit = (u: string) => (u === 'kg' ? 'g' : u === 'l' ? 'ml' : u);
+					const amt = (x: RegExpExecArray) =>
+						Number(x[1].replace(',', '.')) * (/^(kg|l)$/i.test(x[2]) ? 1000 : 1);
+					if (
+						!m ||
+						!l ||
+						unit(m[2].toLowerCase()) !== unit(l[2].toLowerCase()) ||
+						amt(m) <= 0 ||
+						amt(m) > amt(l)
+					)
+						return fail('bad_input', `amount:${k}`);
+				}
+				plan.push({ i, qty: it.amount });
+			}
+			let usedUp = 0;
+			const gone: LotView[] = [];
+			for (const { i, qty } of plan) {
+				const l = lots[i];
+				const rest = qty ? subtractQty(l.left, qty) : null;
+				if (rest) l.left = rest;
+				else {
+					gone.push(l);
+					usedUp++;
+				}
+			}
+			for (const l of gone) lots.splice(lots.indexOf(l), 1);
+			const t = input.title?.trim().toLowerCase();
+			for (const f of favourites) if (t && f.recipe.title.toLowerCase() === t) f.cooked++;
+			return ok({ lots: plan.length, usedUp });
+		},
+		makePlan: async (input: MakePlanInput): Promise<Result<PlanResultView>> => {
+			if (input.days < 1 || input.days > 7) return fail('bad_input', 'days');
+			await new Promise((r) => setTimeout(r, 1800));
+			if (ai.recipes === 'cloud' && !signedIn) return signInError();
+			const start = input.start ?? nextMonday(isoDate(new Date()));
+			const monday = nextMonday(addDays(start, -6));
+			const { days, spares } = planDays(start, input.days);
+			const t = templates.find((x) => x.id === input.templateId);
+			const plan: PlanView = {
+				week: monday,
+				days,
+				spares,
+				template: t?.name ?? null,
+				note: input.note.trim(),
+				createdAt: new Date().toISOString()
+			};
+			plans.set(monday, plan);
+			return ok({ plan: fakePlanView(plan), ...answeredBy(ai.recipes), ms: 1800 });
+		},
+		getPlan: (week: string): Promise<Result<PlanView>> => {
+			const p = plans.get(week);
+			return p ? ok(fakePlanView(p)) : fail('not_found');
+		},
+		listPlans: (): Promise<Result<PlanSummaryView[]>> =>
+			ok(
+				[...plans.values()]
+					.sort((a, b) => b.week.localeCompare(a.week))
+					.map((p) => ({
+						week: p.week,
+						days: p.days.length,
+						cooked: p.days.filter((d) => d.cooked).length,
+						createdAt: p.createdAt
+					}))
+			),
+		swapDay: (input: DayRef): Promise<Result<PlanView>> => {
+			const p = plans.get(input.week);
+			const i = p?.days.findIndex((d) => d.date === input.date && !d.cooked) ?? -1;
+			if (!p || i < 0 || p.spares.length === 0) return fail('not_found');
+			const next = p.spares.shift()!;
+			const old = p.days[i];
+			p.days[i] = { ...next, date: input.date };
+			p.spares.push({ ...old, date: '' });
+			return ok(fakePlanView(p));
+		},
+		setDayCooked: (input: SetDayCookedInput): Promise<Result<PlanView>> => {
+			const p = plans.get(input.week);
+			const d = p?.days.find((x) => x.date === input.date);
+			if (!p || !d) return fail('not_found');
+			d.cooked = input.cooked;
+			return ok(fakePlanView(p));
+		},
+		deletePlan: (week: string): Promise<Result<null>> =>
+			plans.delete(week) ? ok(null) : fail('not_found'),
+		listShopping: (): Promise<Result<ShoppingView>> => ok(structuredClone(shoppingView())),
+		addShopping: (input: AddShoppingInput): Promise<Result<ShoppingItemView>> => {
+			const item = input.item.trim();
+			if (!item) return fail('bad_input', 'item');
+			const same = shopping.find((s) => !s.done && s.item.toLowerCase() === item.toLowerCase());
+			if (same) return ok({ ...same });
+			const s: ShoppingItemView = {
+				id: `shop-${++shoppingId}`,
+				item,
+				qty: input.qty?.trim() || null,
+				category: categoryOf(item),
+				done: false,
+				from: 'manual'
+			};
+			shopping.push(s);
+			return ok({ ...s });
+		},
+		addPlanToShopping: (week: string): Promise<Result<AddedToShoppingView>> => {
+			const p = plans.get(week);
+			if (!p) return fail('not_found');
+			const wanted = new Map<string, { name: string; cat: LotView['category'] }>();
+			for (const d of p.days.filter((x) => !x.cooked))
+				d.need.forEach((n, i) => {
+					const k = n.toLowerCase();
+					if (!wanted.has(k)) wanted.set(k, { name: n, cat: d.needCategories[i] ?? 'other' });
+				});
+			const added: ShoppingItemView[] = [];
+			let skipped = 0;
+			for (const { name, cat } of wanted.values()) {
+				const k = name.toLowerCase();
+				const listed = shopping.some((s) => !s.done && s.item.toLowerCase().includes(k));
+				const inStock = lots.some((l) => l.item.toLowerCase().includes(k));
+				if (listed || inStock) {
+					skipped++;
+					continue;
+				}
+				const s: ShoppingItemView = {
+					id: `shop-${++shoppingId}`,
+					item: name,
+					qty: null,
+					category: cat,
+					done: false,
+					from: `plan:${week}`
+				};
+				shopping.push(s);
+				added.push({ ...s });
+			}
+			return ok({ added, skipped });
+		},
+		setShoppingDone: (input: SetShoppingDoneInput): Promise<Result<ShoppingItemView>> => {
+			const s = shopping.find((x) => x.id === input.id);
+			if (!s) return fail('not_found');
+			s.done = input.done;
+			return ok({ ...s });
+		},
+		deleteShopping: (id: string): Promise<Result<null>> => {
+			if (!shopping.some((x) => x.id === id)) return fail('not_found');
+			shopping = shopping.filter((x) => x.id !== id);
+			return ok(null);
+		},
+		clearDoneShopping: (): Promise<Result<number>> => {
+			const n = shopping.filter((x) => x.done).length;
+			shopping = shopping.filter((x) => !x.done);
+			return ok(n);
+		},
+		putAwayShopping: (): Promise<Result<PutAwayView>> => {
+			const done = shopping.filter((x) => x.done);
+			const added = done.map((x) =>
+				lot(x.item, x.qty ?? '1', FRESH.has(x.category) ? 'fridge' : 'pantry', null)
+			);
+			lots.push(...added);
+			shopping = shopping.filter((x) => !x.done);
+			return ok({ lots: added, items: done.map((x) => ({ ...x })) });
+		},
 		getAiSettings: (): Promise<Result<AiSettingsView>> => ok({ ...ai }),
 		setAiSettings: (input: AiSettingsView): Promise<Result<AiSettingsView>> => {
 			ai = { ...input, cloudModel: input.cloudModel.trim() || 'gemma4:31b-cloud' };
@@ -498,6 +1094,54 @@ function fakeApi() {
 				status: 'ok',
 				data: { signedIn: was, model: ai.cloudModel, ms: was ? 800 : 400, detail: null }
 			};
+		},
+		// ---- sync (SYNTHETIC; `?phone` previews the phone's side) ----
+		getSyncStatus: (): Promise<Result<SyncStatusView>> => ok(syncView()),
+		setSharing: (on: boolean): Promise<Result<SyncStatusView>> => {
+			sync.sharing = on;
+			return ok(syncView());
+		},
+		newPairingCode: (): Promise<Result<SyncStatusView>> => {
+			sync.code =
+				sync.code === 'K7QX-2MDA-PW4R-HNBE-3TYC-ZUA2-MD'
+					? 'HG5V-9RLE-QJ2N-XA6D-4WPS-MKR2-ET'
+					: 'K7QX-2MDA-PW4R-HNBE-3TYC-ZUA2-MD';
+			return ok(syncView());
+		},
+		pairWithMac: async (code: string, address: string): Promise<Result<SyncStatusView>> => {
+			await new Promise((r) => setTimeout(r, 500));
+			if (code.replace(/[-\s]/g, '').length !== 26)
+				return Promise.resolve({ status: 'error', error: { kind: 'sync_bad_code' } });
+			if (address.includes('bad'))
+				return Promise.resolve({
+					status: 'error',
+					error: {
+						kind: 'sync_unreachable',
+						detail:
+							'Couldn’t reach the Mac. Is Nookery open there, sharing switched on, and are both on the same Wi-Fi?'
+					}
+				});
+			sync.peer = address.trim();
+			return ok(syncView());
+		},
+		forgetMac: (): Promise<Result<SyncStatusView>> => {
+			sync.peer = null;
+			sync.last = null;
+			return ok(syncView());
+		},
+		syncNow: async (): Promise<Result<SyncStatusView>> => {
+			await new Promise((r) => setTimeout(r, 700));
+			sync.last = {
+				at: new Date().toISOString(),
+				ok: true,
+				pushed: 1,
+				pulled: 17,
+				docsChanged: 2,
+				dropped: sync.clash ? ['Used milk'] : [],
+				error: null
+			};
+			sync.clash = !sync.clash;
+			return ok(syncView());
 		},
 		lotAction: (id: string, action: LotAction): Promise<Result<LotView>> => {
 			const i = lots.findIndex((l) => l.short === id);

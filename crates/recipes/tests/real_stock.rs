@@ -54,3 +54,42 @@ fn suggestions_and_a_recipe_from_the_real_stock() {
     println!("ingredients: {:#?}\nsteps: {:#?}", r.ingredients, r.steps);
     println!("--- raw ---\n{}", r.raw);
 }
+
+/// One real chat turn on the real stock: a question, then a change.
+/// `cargo test -p nookery-recipes --release --test real_stock chat -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn chat_on_the_real_stock() {
+    let src = std::path::PathBuf::from(std::env::var("HOME").unwrap())
+        .join("Library/Application Support/dev.nookery.app");
+    let tmp = tempfile::tempdir().unwrap();
+    for f in ["nookery.db", "nookery.db-wal", "nookery.db-shm"] {
+        if src.join(f).exists() {
+            std::fs::copy(src.join(f), tmp.path().join(f)).unwrap();
+        }
+    }
+    let store = nookery_store::Store::open_dir(tmp.path()).unwrap();
+    let stock = stock_from(store.inventory().all(), chrono::Local::now().date_naive());
+    let model = OllamaText::from_env();
+    let recipe = parse_recipe(
+        "# Gingered Eggplant & Red Bell Pepper Skillet\nServes: 2\nTime: 30 min\n\n## Ingredients\n- 1 eggplant\n- 1 red bell pepper\n- 1 garlic clove\n- 1 piece ginger\n- 1 tsp paprika\n- 2 tbsp oil\n\n## Steps\n1. Slice the eggplant and roast it for 10 minutes.\n2. Fry garlic and ginger in oil.\n3. Add the eggplant and pepper strips, season with paprika and cook 5 minutes.\n",
+    );
+    for (history, msg) in [
+        (vec![], "Can I make this without an oven?"),
+        (
+            vec![],
+            "Make it more filling with something I have, for 3 people",
+        ),
+    ] {
+        let t = Instant::now();
+        let a = chat(&model, &recipe, &stock, &history, msg, &mut |_| {}).unwrap();
+        println!(
+            "\n>>> {msg}  ({:.1} s)\nreply: {}\nrevised: {}",
+            t.elapsed().as_secs_f64(),
+            a.reply,
+            a.recipe
+                .map(|r| format!("{} serves {:?}\n  {:#?}", r.title, r.serves, r.ingredients))
+                .unwrap_or_else(|| "none".into())
+        );
+    }
+}

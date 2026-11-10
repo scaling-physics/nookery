@@ -2,6 +2,7 @@
 	"name": "nookery",
 	"private": true,
 	"scripts": {
-		"tauri": "./ui/node_modules/.bin/tauri"
+		"tauri": "./ui/node_modules/.bin/tauri",
+		"readme:media": "node scripts/readme-media/capture.mjs"
 	}
 }

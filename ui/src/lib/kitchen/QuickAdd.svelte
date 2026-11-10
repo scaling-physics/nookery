@@ -14,6 +14,34 @@
 	let itemInput: HTMLInputElement | undefined = $state();
 	const expanded = $derived(focused || !!(item || qty || bb || shop));
 
+	// Collapsing while a click elsewhere is still in progress moves the list
+	// under the pointer and the click is lost (e.g. ticking a row right after
+	// typing). So when focus leaves during a press, collapse after it ends.
+	let pressing = false;
+	$effect(() => {
+		const down = () => (pressing = true);
+		const up = () => setTimeout(() => (pressing = false), 0);
+		window.addEventListener('pointerdown', down, true);
+		window.addEventListener('pointerup', up, true);
+		window.addEventListener('pointercancel', up, true);
+		return () => {
+			window.removeEventListener('pointerdown', down, true);
+			window.removeEventListener('pointerup', up, true);
+			window.removeEventListener('pointercancel', up, true);
+		};
+	});
+
+	function collapse() {
+		if (!pressing) {
+			focused = false;
+			return;
+		}
+		const done = () =>
+			setTimeout(() => (focused = form?.contains(document.activeElement) ?? false), 0);
+		window.addEventListener('click', done, { once: true, capture: false });
+		window.addEventListener('pointercancel', done, { once: true });
+	}
+
 	async function add(e: SubmitEvent) {
 		e.preventDefault();
 		if (!item.trim()) return;
@@ -44,7 +72,7 @@
 	onsubmit={add}
 	onfocusin={() => (focused = true)}
 	onfocusout={(e) => {
-		if (!form?.contains(e.relatedTarget as Node | null)) focused = false;
+		if (!form?.contains(e.relatedTarget as Node | null)) collapse();
 	}}
 	class="mb-6 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-1.5"
 	aria-label="Add something"

@@ -2,9 +2,11 @@
 //! (`$NOOKERY_DATA_DIR` or the OS app-data folder; `--data` overrides).
 
 mod photo;
+mod plan;
 mod receipt;
 mod recipes;
 mod settings;
+mod sync;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -89,8 +91,16 @@ enum Cmd {
     Recipes(recipes::RecipesArgs),
     /// List, add, edit, remove and order the saved "what I want" templates.
     Templates(recipes::TemplatesArgs),
+    /// A week of dinners from what's in stock (`plan swap DATE` swaps one).
+    Plan(plan::PlanArgs),
+    /// The shopping list: add, tick, remove, from-plan, put-away.
+    Shopping(plan::ShoppingArgs),
+    /// Saved recipes (rm ID forgets one).
+    Favourites(plan::FavouritesArgs),
     /// Where the AI runs (this Mac or the cloud) and which cloud model.
     Settings(settings::SettingsArgs),
+    /// Share this kitchen with the phone (serve), or sync as the phone (pair, now).
+    Sync(sync::SyncArgs),
 }
 
 fn main() -> ExitCode {
@@ -110,6 +120,9 @@ fn run(cli: Cli) -> Result<(), String> {
     let mut store = Store::open_dir(&dir).map_err(|e| e.to_string())?;
     let opened = t0.elapsed();
     let today = Local::now().date_naive();
+    if let Cmd::Sync(args) = cli.cmd {
+        return sync::run(&mut store, &dir, args).map_err(|e| e.to_string());
+    }
     let t1 = Instant::now();
     execute(&mut store, cli.cmd, today, cli.time).map_err(|e| e.to_string())?;
     if cli.time {
@@ -234,6 +247,23 @@ fn execute(
                 &mut std::io::stdout(),
             )?
         }
+        Cmd::Plan(args) => {
+            let mode = args.ai.mode(store.ai_mode(SETTING_RECIPES_AI)?);
+            let chosen = nookery_recipes::ChosenText::for_mode(mode, &store.cloud_model()?);
+            plan::run_plan(
+                store,
+                args,
+                &chosen,
+                &|| settings::Who {
+                    by: chosen.answered_by(),
+                    cloud: chosen.used_cloud(),
+                },
+                today,
+                &mut std::io::stdout(),
+            )?
+        }
+        Cmd::Shopping(args) => plan::run_shopping(store, args, today, &mut std::io::stdout())?,
+        Cmd::Favourites(args) => plan::run_favourites(store, args, &mut std::io::stdout())?,
         Cmd::Templates(args) => recipes::run_templates(store, args, &mut std::io::stdout())?,
         Cmd::Settings(args) => {
             let cloud = nookery_recipes::ChosenText::for_mode(
@@ -242,6 +272,7 @@ fn execute(
             );
             settings::run(store, args, &cloud, &mut std::io::stdout())?
         }
+        Cmd::Sync(_) => unreachable!("handled in run"),
         Cmd::Log { id } => {
             let events = match id {
                 Some(id) => store.lot_events(store.find_lot(&id)?)?,

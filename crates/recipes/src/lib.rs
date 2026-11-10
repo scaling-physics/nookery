@@ -529,6 +529,8 @@ pub fn write_recipe(
     Ok(parse_recipe(&answer))
 }
 
+mod chat;
+pub use chat::{chat, chat_prompt, parse_chat, ChatAnswer, ChatRole, ChatTurn, MAX_HISTORY};
 mod helpers;
 use helpers::*;
 

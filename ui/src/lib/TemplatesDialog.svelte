@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '#lib/api.js';
 	import type { CommandError, TemplateView } from '#lib/bindings.js';
+	import KitchenScene from '#lib/art/KitchenScene.svelte';
 
 	let {
 		templates,
@@ -117,12 +118,15 @@
 	aria-labelledby="tpl-h"
 	{onclose}
 	onclick={backdrop}
-	class="m-auto w-[min(40rem,calc(100vw-1.5rem))] max-w-none rounded-2xl border border-[var(--line)] bg-[var(--bg)] p-0 text-[var(--ink)] shadow-2xl"
+	class="m-auto w-[min(40rem,calc(100vw-1.5rem))] max-w-none rounded-3xl border border-[var(--line)] bg-[var(--bg)] p-0 text-[var(--ink)] shadow-2xl"
 >
 	<div class="flex max-h-[85vh] flex-col">
-		<header class="flex items-start justify-between gap-4 px-5 pt-5 pb-3">
-			<div>
-				<h2 id="tpl-h" class="text-[18px] font-semibold tracking-tight">Templates</h2>
+		<header
+			class="flex items-center gap-4 bg-gradient-to-b from-[var(--surface-2)] to-transparent px-5 pt-5 pb-3"
+		>
+			<div class="shrink-0 max-sm:hidden"><KitchenScene size={84} steam={false} /></div>
+			<div class="min-w-0 flex-1">
+				<h2 id="tpl-h" class="text-[20px] font-semibold tracking-tight">Templates</h2>
 				<p class="text-sm text-[var(--ink-2)]">
 					What you ask for, in your own words. The first one is picked by default.
 				</p>
@@ -185,7 +189,7 @@
 							{@render form()}
 						{:else}
 							<div
-								class="flex flex-col gap-2 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3 sm:flex-row sm:items-start sm:gap-3"
+								class="flex flex-col gap-2 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3.5 sm:flex-row sm:items-start sm:gap-3"
 							>
 								<div class="min-w-0 flex-1">
 									<p class="font-medium">{t.name}</p>

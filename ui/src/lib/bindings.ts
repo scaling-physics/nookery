@@ -17,9 +17,50 @@ export const commands = {
 	orderTemplates: (ids: number[]) => typedError<null, CommandError>(__TAURI_INVOKE("order_templates", { ids })),
 	suggestRecipes: (input: SuggestInput) => typedError<SuggestionsView, CommandError>(__TAURI_INVOKE("suggest_recipes", { input })),
 	writeRecipe: (input: WriteRecipeInput, onText: Channel<string>) => typedError<RecipeView, CommandError>(__TAURI_INVOKE("write_recipe", { input, onText })),
+	recipeChat: (input: RecipeChatInput, onText: Channel<string>) => typedError<RecipeChatView, CommandError>(__TAURI_INVOKE("recipe_chat", { input, onText })),
 	getAiSettings: () => typedError<AiSettingsView, CommandError>(__TAURI_INVOKE("get_ai_settings")),
 	setAiSettings: (input: AiSettingsView) => typedError<AiSettingsView, CommandError>(__TAURI_INVOKE("set_ai_settings", { input })),
 	checkCloud: () => typedError<CloudCheckView, CommandError>(__TAURI_INVOKE("check_cloud")),
+	saveFavourite: (input: SaveFavouriteInput) => typedError<FavouriteView, CommandError>(__TAURI_INVOKE("save_favourite", { input })),
+	listFavourites: () => typedError<FavouriteView[], CommandError>(__TAURI_INVOKE("list_favourites")),
+	deleteFavourite: (id: string) => typedError<null, CommandError>(__TAURI_INVOKE("delete_favourite", { id })),
+	updateFavourite: (id: string, input: SaveFavouriteInput) => typedError<FavouriteView, CommandError>(__TAURI_INVOKE("update_favourite", { id, input })),
+	/**  One batch of `Used` events: all of a lot, some of it, or (left out) none. */
+	cooked: (input: CookedInput) => typedError<CookedView, CommandError>(__TAURI_INVOKE("cooked", { input })),
+	makePlan: (input: MakePlanInput) => typedError<PlanResultView, CommandError>(__TAURI_INVOKE("make_plan", { input })),
+	getPlan: (week: string) => typedError<PlanView, CommandError>(__TAURI_INVOKE("get_plan", { week })),
+	/**  Newest week first. */
+	listPlans: () => typedError<PlanSummaryView[], CommandError>(__TAURI_INVOKE("list_plans")),
+	/**
+	 *  Replaces a day with the next best spare (`NotFound` when there is none,
+	 *  or the day was already cooked).
+	 */
+	swapDay: (input: DayRef) => typedError<PlanView, CommandError>(__TAURI_INVOKE("swap_day", { input })),
+	setDayCooked: (input: SetDayCookedInput) => typedError<PlanView, CommandError>(__TAURI_INVOKE("set_day_cooked", { input })),
+	deletePlan: (week: string) => typedError<null, CommandError>(__TAURI_INVOKE("delete_plan", { week })),
+	listShopping: () => typedError<ShoppingView, CommandError>(__TAURI_INVOKE("list_shopping")),
+	addShopping: (input: AddShoppingInput) => typedError<ShoppingItemView, CommandError>(__TAURI_INVOKE("add_shopping", { input })),
+	addPlanToShopping: (week: string) => typedError<AddedToShoppingView, CommandError>(__TAURI_INVOKE("add_plan_to_shopping", { week })),
+	setShoppingDone: (input: SetShoppingDoneInput) => typedError<ShoppingItemView, CommandError>(__TAURI_INVOKE("set_shopping_done", { input })),
+	deleteShopping: (id: string) => typedError<null, CommandError>(__TAURI_INVOKE("delete_shopping", { id })),
+	/**  Removes every ticked item; how many. */
+	clearDoneShopping: () => typedError<number, CommandError>(__TAURI_INVOKE("clear_done_shopping")),
+	/**
+	 *  Ticked items become lots (fridge for fresh food, else pantry) and leave
+	 *  the list.
+	 */
+	putAwayShopping: () => typedError<PutAwayView, CommandError>(__TAURI_INVOKE("put_away_shopping")),
+	getSyncStatus: () => typedError<SyncStatusView, CommandError>(__TAURI_INVOKE("get_sync_status")),
+	setSharing: (on: boolean) => typedError<SyncStatusView, CommandError>(__TAURI_INVOKE("set_sharing", { on })),
+	newPairingCode: () => typedError<SyncStatusView, CommandError>(__TAURI_INVOKE("new_pairing_code")),
+	pairWithMac: (code: string, address: string) => typedError<SyncStatusView, CommandError>(__TAURI_INVOKE("pair_with_mac", { code, address })),
+	forgetMac: () => typedError<SyncStatusView, CommandError>(__TAURI_INVOKE("forget_mac")),
+	syncNow: () => typedError<SyncStatusView, CommandError>(__TAURI_INVOKE("sync_now")),
+	getPhoneAi: () => typedError<PhoneAiView, CommandError>(__TAURI_INVOKE("get_phone_ai")),
+	setPhoneAi: (pref: PhoneAiPref) => typedError<PhoneAiView, CommandError>(__TAURI_INVOKE("set_phone_ai", { pref })),
+	downloadPhoneModel: (onProgress: Channel<DownloadProgress>) => typedError<PhoneAiView, CommandError>(__TAURI_INVOKE("download_phone_model", { onProgress })),
+	cancelPhoneDownload: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_phone_download")),
+	deletePhoneModel: () => typedError<PhoneAiView, CommandError>(__TAURI_INVOKE("delete_phone_model")),
 };
 
 /* Types */
@@ -29,6 +70,17 @@ export type AddInput = {
 	location: string,
 	bestBefore: string | null,
 	store: string | null,
+};
+
+export type AddShoppingInput = {
+	item: string,
+	qty: string | null,
+};
+
+export type AddedToShoppingView = {
+	added: ShoppingItemView[],
+	/**  Needs not added: already on the list, or in stock. */
+	skipped: number,
 };
 
 /**  Where one feature runs. */
@@ -49,6 +101,21 @@ export type ApplyPhotoResult = {
 	seen: number,
 	added: number,
 	learned: number,
+};
+
+export type ChatRecipeInput = {
+	title: string,
+	serves: number | null,
+	minutes: number | null,
+	ingredients: string[],
+	steps: string[],
+};
+
+export type ChatRoleView = "user" | "cook";
+
+export type ChatTurnInput = {
+	role: ChatRoleView,
+	text: string,
 };
 
 export type CloudCheckView = {
@@ -82,7 +149,82 @@ export type CommandError =
  */
 { kind: "cloud_credits" } | 
 /**  This receipt is already in the ledger. */
-{ kind: "already_imported" } | { kind: "internal" };
+{ kind: "already_imported" } | 
+/**  Sync with the other device failed (detail: a friendly sentence). */
+{ kind: "sync_unreachable"; detail: string } | 
+/**  The pairing code is wrong (or was replaced on the Mac). */
+{ kind: "sync_bad_code" } | 
+/**
+ *  Phone: "On this phone" is chosen but the recipe model isn't
+ *  downloaded yet.
+ */
+{ kind: "phone_model_missing" } | 
+/**
+ *  Phone: the paired Mac is needed and can't be used (detail: a
+ *  friendly sentence).
+ */
+{ kind: "mac_unreachable"; detail: string } | { kind: "internal" };
+
+export type CookedInput = {
+	items: CookedItemInput[],
+	/**  The recipe's title: a favourite with that title counts one more cook. */
+	title: string | null,
+};
+
+export type CookedItemInput = {
+	/**  A lot id (the full one or its short form). */
+	lot: string,
+	/**  `None`: all of it. Otherwise an amount such as `200g` or `1`. */
+	amount: string | null,
+};
+
+export type CookedView = {
+	/**  Lots written to. */
+	lots: number,
+	/**  Of those, lots now used up. */
+	usedUp: number,
+};
+
+export type DayRef = {
+	week: string,
+	date: string,
+};
+
+export type DayView = {
+	/**  `YYYY-MM-DD`; empty for a spare. */
+	date: string,
+	name: string,
+	why: string,
+	minutes: number | null,
+	have: HaveView[],
+	need: string[],
+	needCategories: FoodCategoryView[],
+	usesSoon: number,
+	cooked: boolean,
+};
+
+export type DownloadProgress = {
+	done: number | null,
+	total: number | null,
+};
+
+export type FavouriteRecipeView = {
+	title: string,
+	serves: number | null,
+	minutes: number | null,
+	ingredients: string[],
+	ingredientCategories: FoodCategoryView[],
+	steps: string[],
+};
+
+export type FavouriteView = {
+	id: string,
+	recipe: FavouriteRecipeView,
+	why: string | null,
+	savedAt: string,
+	/**  How many times it was cooked. */
+	cooked: number,
+};
 
 /**  `nookery_core::FoodCategory`, typed for the UI. */
 export type FoodCategoryView = "vegetables" | "fruit" | "herbs" | "dairy" | "cheese" | "eggs" | "meat" | "fish" | "bread" | "grains" | "legumes" | "spices" | "sauces" | "sweets" | "drinks" | "nuts" | "leftovers" | "other";
@@ -105,6 +247,21 @@ export type InventoryView = {
 	/**  Open + replay at start, and this command, in milliseconds. */
 	openMs: number | null,
 	queryMs: number | null,
+};
+
+/**  How the last sync went. */
+export type LastSyncView = {
+	/**  RFC 3339. */
+	at: string,
+	ok: boolean,
+	/**  Phone changes the Mac took. */
+	pushed: number,
+	/**  Items in the kitchen list afterwards. */
+	pulled: number,
+	docsChanged: number,
+	/**  Phone changes the Mac refused, in words ("Used up milk"). */
+	dropped: string[],
+	error: string | null,
 };
 
 export type LotAction = 
@@ -135,6 +292,39 @@ export type LotView = {
 	store: string | null,
 	/**  For the little food icon (guessed from the name). */
 	category: FoodCategoryView,
+};
+
+export type MakePlanInput = {
+	templateId: number | null,
+	note: string,
+	/**  1 to 7. */
+	days: number,
+	/**  `YYYY-MM-DD`; default the next (or this) Monday. */
+	start: string | null,
+};
+
+/**  Where the phone writes recipes. */
+export type PhoneAiPref = "auto" | "phone" | "mac";
+
+export type PhoneAiView = {
+	/**  False on the desktop: nothing of this applies there. */
+	available: boolean,
+	pref: PhoneAiPref,
+	model: PhoneModelView,
+	/**  A Mac is paired (needed to download and for "On my Mac"). */
+	paired: boolean,
+};
+
+export type PhoneModelView = {
+	downloaded: boolean,
+	/**  Size of the downloaded file. */
+	bytes: number | null,
+	/**  A half-finished download that can be resumed. */
+	partialBytes: number | null,
+	freeBytes: number | null,
+	/**  About how big the download is. */
+	expectedBytes: number | null,
+	downloading: boolean,
 };
 
 export type PhotoAction = "seen" | "add" | "ignore";
@@ -175,6 +365,30 @@ export type PhotoReviewView = {
 	missing: LotView[],
 };
 
+export type PlanResultView = {
+	plan: PlanView,
+	model: string,
+	usedCloud: boolean,
+	ms: number | null,
+};
+
+export type PlanSummaryView = {
+	week: string,
+	days: number,
+	cooked: number,
+	createdAt: string,
+};
+
+export type PlanView = {
+	/**  The Monday, `YYYY-MM-DD`. */
+	week: string,
+	days: DayView[],
+	spares: DayView[],
+	template: string | null,
+	note: string,
+	createdAt: string,
+};
+
 export type ProposalView = {
 	/**  The learned product name, if any. */
 	item: string | null,
@@ -184,6 +398,13 @@ export type ProposalView = {
 	priceCents: number,
 	/**  True when the printed text matched a learned alias. */
 	known: boolean,
+};
+
+export type PutAwayView = {
+	/**  The new lots (to show where they went). */
+	lots: LotView[],
+	/**  What left the list (to put back on Undo). */
+	items: ShoppingItemView[],
 };
 
 export type ReceiptImportInput = {
@@ -225,11 +446,29 @@ export type ReceiptView = {
 	lines: ReceiptLineView[],
 };
 
+export type RecipeChatInput = {
+	/**  The recipe as it is now (a suggestion's or a saved favourite's). */
+	recipe: ChatRecipeInput,
+	history: ChatTurnInput[],
+	message: string,
+};
+
+export type RecipeChatView = {
+	reply: string,
+	/**  The whole revised recipe, when the cook changed it. */
+	recipe: RecipeView | null,
+	model: string,
+	usedCloud: boolean,
+	ms: number | null,
+};
+
 export type RecipeView = {
 	title: string,
 	serves: number | null,
 	minutes: number | null,
 	ingredients: string[],
+	/**  The food category of each ingredient line (same order). */
+	ingredientCategories: FoodCategoryView[],
 	steps: string[],
 	/**  The model's whole answer, for display if parsing missed something. */
 	raw: string,
@@ -237,6 +476,15 @@ export type RecipeView = {
 	model: string,
 	usedCloud: boolean,
 	ms: number | null,
+};
+
+export type SaveFavouriteInput = {
+	title: string,
+	serves: number | null,
+	minutes: number | null,
+	ingredients: string[],
+	steps: string[],
+	why: string | null,
 };
 
 export type SaveTemplateInput = {
@@ -249,6 +497,39 @@ export type SaveTemplateInput = {
 export type ScanProgress = {
 	done: number,
 	total: number,
+};
+
+export type SetDayCookedInput = {
+	week: string,
+	date: string,
+	cooked: boolean,
+};
+
+export type SetShoppingDoneInput = {
+	id: string,
+	done: boolean,
+};
+
+export type ShoppingGroupView = {
+	category: FoodCategoryView,
+	items: ShoppingItemView[],
+};
+
+export type ShoppingItemView = {
+	id: string,
+	item: string,
+	qty: string | null,
+	category: FoodCategoryView,
+	done: boolean,
+	/**  `plan:<week>`, `recipe` or `manual`. */
+	from: string,
+};
+
+export type ShoppingView = {
+	/**  In aisle order: vegetables, fruit, herbs, bread, dairy, ... */
+	groups: ShoppingGroupView[],
+	open: number,
+	done: number,
 };
 
 export type SuggestInput = {
@@ -265,6 +546,11 @@ export type SuggestionView = {
 	minutes: number | null,
 	have: HaveView[],
 	need: string[],
+	/**
+	 *  The food category of each `need` entry (same order), for icons and
+	 *  illustrations.
+	 */
+	needCategories: FoodCategoryView[],
 	/**  Expired lots the idea wanted: a warning, not an ingredient. */
 	expired: LotView[],
 	usesSoon: number,
@@ -277,6 +563,33 @@ export type SuggestionsView = {
 	usedCloud: boolean,
 	ms: number | null,
 	items: SuggestionView[],
+};
+
+export type SyncRole = "mac" | "phone";
+
+export type SyncStatusView = {
+	role: SyncRole,
+	/**  Mac: listening for the phone. */
+	sharing: boolean,
+	/**  Mac: this computer's address on the home network (`192.168.1.20`). */
+	addresses: string[],
+	port: number,
+	/**  Mac: the pairing code, grouped for reading. */
+	code: string | null,
+	/**
+	 *  Mac, while sharing: `nookery://pair?code=..&addr=..&name=..`, what the
+	 *  QR code holds (the secret: show it only to the user).
+	 */
+	link: string | null,
+	/**
+	 *  Mac, while sharing: the QR code as an SVG string (dark ink on a light
+	 *  tile, quiet zone included).
+	 */
+	qr: string | null,
+	/**  Phone: the paired Mac's address. */
+	peer: string | null,
+	peerName: string | null,
+	last: LastSyncView | null,
 };
 
 export type TemplateView = {
