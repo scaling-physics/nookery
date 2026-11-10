@@ -19,3 +19,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# ML Kit (QR pairing via tauri-plugin-barcode-scanner) finds its registrars
+# by reflection; R8 removed their no-arg constructors in the release build.
+-keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
+-keep class com.google.mlkit.**Registrar { <init>(); }
