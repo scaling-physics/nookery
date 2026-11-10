@@ -59,6 +59,16 @@ jobs:
         if: steps.hash.outputs.stale == 'true'
         run: pnpm -C ui exec playwright install --with-deps chromium
 
+      # assemble.py builds the GIFs with Pillow.
+      - uses: actions/setup-python@v5
+        if: steps.hash.outputs.stale == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: Install Pillow
+        if: steps.hash.outputs.stale == 'true'
+        run: python -m pip install pillow
+
       - name: Record the media
         if: steps.hash.outputs.stale == 'true'
         run: pnpm readme:media
