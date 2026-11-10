@@ -436,13 +436,18 @@ const flows = {
 	},
 
 	async stills(browser, base) {
+		// No drawn cursor in a still (Linux Chromium sends a mousemove at 0,0 on load).
+		const still = async (page, file) => {
+			await page.addStyleTag({ content: '#__cur{display:none!important}' });
+			await page.screenshot({ path: path.join(outDir, file) });
+		};
 		for (const scheme of ['light', 'dark']) {
 			const { ctx, page } = await open(browser, base, '/', { scheme, name: 'still' });
-			await page.screenshot({ path: path.join(outDir, `kitchen-${scheme}.png`) });
+			await still(page, `kitchen-${scheme}.png`);
 			await ctx.close();
 		}
 		const { ctx, page } = await open(browser, base, '/settings', { name: 'still' });
-		await page.screenshot({ path: path.join(outDir, 'settings.png') });
+		await still(page, 'settings.png');
 		await ctx.close();
 	}
 };
