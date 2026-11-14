@@ -9,6 +9,8 @@ export const commands = {
 	lotAction: (id: string, action: LotAction) => typedError<LotView, CommandError>(__TAURI_INVOKE("lot_action", { id, action })),
 	parseReceipt: (text: string, store: string | null) => typedError<ReceiptView, CommandError>(__TAURI_INVOKE("parse_receipt", { text, store })),
 	importReceipt: (input: ReceiptImportInput) => typedError<ImportResultView, CommandError>(__TAURI_INVOKE("import_receipt", { input })),
+	/**  `file` = base64 of the file's bytes. No store lock: nothing is written. */
+	readReceiptFile: (file: string) => typedError<ReceiptFileView, CommandError>(__TAURI_INVOKE("read_receipt_file", { file })),
 	scanPhoto: (imageBase64: string, location: string, onProgress: Channel<ScanProgress>) => typedError<PhotoReviewView, CommandError>(__TAURI_INVOKE("scan_photo", { imageBase64, location, onProgress })),
 	applyPhoto: (input: ApplyPhotoInput) => typedError<ApplyPhotoResult, CommandError>(__TAURI_INVOKE("apply_photo", { input })),
 	listTemplates: () => typedError<TemplateView[], CommandError>(__TAURI_INVOKE("list_templates")),
@@ -18,6 +20,14 @@ export const commands = {
 	suggestRecipes: (input: SuggestInput) => typedError<SuggestionsView, CommandError>(__TAURI_INVOKE("suggest_recipes", { input })),
 	writeRecipe: (input: WriteRecipeInput, onText: Channel<string>) => typedError<RecipeView, CommandError>(__TAURI_INVOKE("write_recipe", { input, onText })),
 	recipeChat: (input: RecipeChatInput, onText: Channel<string>) => typedError<RecipeChatView, CommandError>(__TAURI_INVOKE("recipe_chat", { input, onText })),
+	/**
+	 *  The recipe model picks the closest dish kind and the ingredients to show.
+	 *  Always local (this Mac's Ollama, or on the phone the phone model / the
+	 *  paired Mac), even when recipes are set to cloud: it is decoration, and
+	 *  nothing is sent to the cloud without the user's choice. The UI falls back
+	 *  to word matching on any error.
+	 */
+	pickDishArt: (dishes: ArtDishInput[], options: ArtOption[]) => typedError<(ArtPickView | null)[], CommandError>(__TAURI_INVOKE("pick_dish_art", { dishes, options })),
 	getAiSettings: () => typedError<AiSettingsView, CommandError>(__TAURI_INVOKE("get_ai_settings")),
 	setAiSettings: (input: AiSettingsView) => typedError<AiSettingsView, CommandError>(__TAURI_INVOKE("set_ai_settings", { input })),
 	checkCloud: () => typedError<CloudCheckView, CommandError>(__TAURI_INVOKE("check_cloud")),
@@ -87,6 +97,7 @@ export type AddedToShoppingView = {
 export type AiModeView = "local" | "fallback" | "cloud";
 
 export type AiSettingsView = {
+	recipeArt: RecipeArtView,
 	photos: AiModeView,
 	recipes: AiModeView,
 	cloudModel: string,
@@ -101,6 +112,21 @@ export type ApplyPhotoResult = {
 	seen: number,
 	added: number,
 	learned: number,
+};
+
+export type ArtDishInput = {
+	title: string,
+	ingredients: string[],
+};
+
+export type ArtOption = {
+	id: string,
+	label: string,
+};
+
+export type ArtPickView = {
+	kind: string,
+	show: string[],
 };
 
 export type ChatRecipeInput = {
@@ -163,7 +189,12 @@ export type CommandError =
  *  Phone: the paired Mac is needed and can't be used (detail: a
  *  friendly sentence).
  */
-{ kind: "mac_unreachable"; detail: string } | { kind: "internal" };
+{ kind: "mac_unreachable"; detail: string } | 
+/**
+ *  A receipt file can't be read (detail: `unknown_format`, `too_large`,
+ *  `no_text`, `ocr_unavailable`, `pdf` or `image`).
+ */
+{ kind: "receipt_unreadable"; detail: string } | { kind: "internal" };
 
 export type CookedInput = {
 	items: CookedItemInput[],
@@ -407,6 +438,16 @@ export type PutAwayView = {
 	items: ShoppingItemView[],
 };
 
+export type ReceiptFileView = {
+	/**  Goes into the receipt text box, then through `parse_receipt`. */
+	text: string,
+	method: ReceiptReadMethod,
+	ms: number,
+	pages: number,
+	/**  Which device did the reading ("this Mac"). */
+	readBy: string,
+};
+
 export type ReceiptImportInput = {
 	text: string,
 	store: string | null,
@@ -434,6 +475,9 @@ export type ReceiptLineView = {
 	proposal: ProposalView | null,
 };
 
+/**  A receipt file read into text (PDF text layer, OCR of a photo, or plain text). */
+export type ReceiptReadMethod = "text" | "pdf_text" | "ocr";
+
 export type ReceiptView = {
 	id: string,
 	/**  Chain name ("REWE", "denn's"); None when it can't be told. */
@@ -445,6 +489,13 @@ export type ReceiptView = {
 	alreadyImported: boolean,
 	lines: ReceiptLineView[],
 };
+
+/**  How recipe pictures are chosen (decoration; never uses the cloud). */
+export type RecipeArtView = 
+/**  From the recipe's name and ingredients, in the UI. Default. */
+"matched" | 
+/**  The local recipe model picks (`pick_dish_art`). */
+"model";
 
 export type RecipeChatInput = {
 	/**  The recipe as it is now (a suggestion's or a saved favourite's). */

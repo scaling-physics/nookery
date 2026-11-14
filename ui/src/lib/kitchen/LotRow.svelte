@@ -211,4 +211,10 @@
 			display: inline;
 		}
 	}
+	@media (max-width: 639px) {
+		.row {
+			gap: 0.55rem;
+			padding: 0.15rem 0.35rem 0.15rem 0.85rem;
+		}
+	}
 </style>

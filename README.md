@@ -26,7 +26,7 @@ Here is an ordinary day with Nookery.
 
 ### 1. You put the shopping away
 
-Type what you bought and press Add. It lands in the fridge, freezer or pantry, with an amount and a best-before date if you have one. You can also open a digital receipt (paste it in, or open the text file) and Nookery reads the lines for you. And if you would rather not type at all, take a photo of your fridge and let it work out what is in there.
+Type what you bought and press Add. It lands in the fridge, freezer or pantry, with an amount and a best-before date if you have one. You can also bring in a receipt (a photo of the paper one, the PDF from the shop's app, or pasted text) and Nookery reads the lines for you. Photos are read on your Mac, and you check the amounts before anything is added. And if you would rather not type at all, take a photo of your fridge and let it work out what is in there.
 
 When something is used up or thrown away, one tap removes it, and for a few seconds there is an **Undo** in case your finger slipped.
 
@@ -144,7 +144,7 @@ To get recipes on the phone without the Mac, open **Settings** on the phone and 
 
 ### Still early
 
-- **Receipts are text only for now.** You can paste a digital receipt or open it as a text file. Photos of paper receipts are not read yet.
+- **Receipt photos need your Mac.** Paper receipts are read by your Mac's built-in text recognition (on the phone, the photo is sent to your Mac over your home Wi-Fi). PDFs and text work anywhere. Reading is new and has only been tried on sample receipts so far, so check the amounts: the lines must add up to the receipt's total before you can import.
 - **Photo scanning runs on the Mac.** Fridge and pantry photos are read by the Mac's model. From the phone, the photo is sent to your Mac over your home Wi-Fi, so it only works when the Mac is on, at home and has Nookery open.
 - **The Android app is new.** Expect rough edges.
 - **No barcode scanning yet.** It is on the list.

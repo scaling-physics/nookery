@@ -51,6 +51,7 @@
 					<DishArt
 						title={f.recipe.title}
 						categories={f.recipe.ingredientCategories}
+						ingredients={f.recipe.ingredients}
 						size={48}
 						decorative
 					/>

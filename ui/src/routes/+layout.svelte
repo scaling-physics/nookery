@@ -8,6 +8,8 @@
 	import { isAndroid } from '#lib/platform.js';
 	import { autosync, startAutoSync } from '#lib/phone/autosync.svelte.js';
 	import SyncBadge from '#lib/phone/SyncBadge.svelte';
+	import { loadArtMode } from '#lib/art/pick.svelte.js';
+	import { theme } from '#lib/theme.svelte.js';
 
 	let { children } = $props();
 
@@ -30,6 +32,8 @@
 	// The tab bar belongs to the main sections; photo and receipt are sub-screens
 	// with their own header and a way back.
 	onMount(() => {
+		theme.init();
+		void loadArtMode();
 		const stopWatching = watchDialogs();
 		// The phone syncs with the Mac at start and whenever it comes back.
 		const stopSync = isAndroid ? startAutoSync() : undefined;

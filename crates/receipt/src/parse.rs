@@ -58,18 +58,29 @@ impl Cont {
     }
 }
 
+/// A unit tail after the price: `EUR/kg`, `FUR/kg` (OCR), `€/kg`, `/kg`, `EUR`.
+fn is_unit_tail(tok: &str) -> bool {
+    match tok.strip_suffix("/kg") {
+        Some(pre) => pre.chars().count() <= 3 && !pre.contains(|c: char| c.is_ascii_digit()),
+        None => matches!(tok, "eur" | "fur" | "€"),
+    }
+}
+
 /// `2 Stk x 0,99`, `2 St x 0,99`, `2 x 0,99`, `2x 0,99`,
-/// `0,512 kg x 2,99 EUR/kg`.
+/// `0,512 kg x 2,99 EUR/kg`. OCR variants: `X`, `×`, `*` for the x, a
+/// decimal point in the weight or price, `FUR/kg`, and (weight lines only)
+/// one misread character instead of the x: `0,512 kg ? 2,99`.
 pub(crate) fn parse_cont(line: &str) -> Option<Cont> {
     let lower = line.to_lowercase();
     let mut toks: Vec<&str> = lower.split_whitespace().collect();
-    while matches!(toks.last(), Some(&"eur/kg" | &"€/kg" | &"eur" | &"€")) {
+    while toks.last().is_some_and(|t| is_unit_tail(t)) {
         toks.pop();
     }
     let unit_cents = parse_cents(toks.pop()?)?;
+    let is_x = |t: &str| matches!(t, "x" | "×" | "*");
     match toks.as_slice() {
-        [w, "kg", "x"] => {
-            let (kg, frac) = w.split_once(',').unwrap_or((w, ""));
+        [w, "kg", op] if is_x(op) || is_misread_x(op) => {
+            let (kg, frac) = w.split_once([',', '.']).unwrap_or((w, ""));
             if frac.len() > 3 || !kg.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {
                 return None;
             }
@@ -80,20 +91,23 @@ pub(crate) fn parse_cont(line: &str) -> Option<Cont> {
                 per_kg_cents: unit_cents,
             })
         }
-        [n, "x"] | [n, "stk" | "stk." | "st" | "st." | "stück", "x"] => {
-            let count: u32 = n.parse().ok()?;
-            (1..=999)
-                .contains(&count)
-                .then_some(Cont::Multi { count, unit_cents })
-        }
-        [n] => {
-            let count: u32 = n.strip_suffix('x')?.parse().ok()?;
-            (1..=999)
-                .contains(&count)
-                .then_some(Cont::Multi { count, unit_cents })
-        }
+        [n, op] if is_x(op) => multi(n, unit_cents),
+        [n, "stk" | "stk." | "st" | "st." | "stück", op] if is_x(op) => multi(n, unit_cents),
+        [n] => multi(n.strip_suffix(['x', '×', '*'])?, unit_cents),
         _ => None,
     }
+}
+
+/// One stray character where the multiplication sign should be.
+fn is_misread_x(tok: &str) -> bool {
+    tok.chars().count() == 1 && !tok.contains(|c: char| c.is_ascii_digit() || c == '-')
+}
+
+fn multi(n: &str, unit_cents: i64) -> Option<Cont> {
+    let count: u32 = n.parse().ok()?;
+    (1..=999)
+        .contains(&count)
+        .then_some(Cont::Multi { count, unit_cents })
 }
 
 fn classify(text: &str, cents: i64) -> (LineKind, i64) {
@@ -209,13 +223,18 @@ pub(crate) fn parse_lines(text: &str, _chain: Option<Chain>) -> Parsed {
     }
 }
 
-/// The first `dd.mm.yy` or `dd.mm.yyyy` token in a line.
+/// The first `dd.mm.yy` or `dd.mm.yyyy` token in a line. OCR variants with a
+/// comma for a point (`08.11,26`) count only when they form a valid date.
 pub(crate) fn find_date(line: &str) -> Option<NaiveDate> {
     line.split_whitespace().find_map(|tok| {
         let tok = tok.trim_matches(|c: char| !c.is_ascii_digit());
-        let mut p = tok.split('.');
+        let mut p = tok.split(['.', ',']);
         let (d, m, y) = (p.next()?, p.next()?, p.next()?);
         if p.next().is_some() || !(y.len() == 2 || y.len() == 4) {
+            return None;
+        }
+        // All commas (`1,19,05`) are prices and amounts, not dates.
+        if !tok.contains('.') {
             return None;
         }
         let year: i32 = y.parse().ok()?;
@@ -269,12 +288,52 @@ mod tests {
     }
 
     #[test]
+    fn ocr_variants_of_count_and_weight_lines() {
+        let two = Some(Cont::Multi {
+            count: 2,
+            unit_cents: 99,
+        });
+        for l in [
+            "2 Stk X   0,99",
+            "2 Stk × 0,99",
+            "2 Stk * 0,99",
+            "2X 0,99",
+            "2 Stk x 0.99",
+        ] {
+            assert_eq!(parse_cont(l), two, "{l}");
+        }
+        let w = Some(Cont::Weight {
+            grams: 512,
+            per_kg_cents: 299,
+        });
+        for l in [
+            "0,512 kg ? 2,99 FUR/kg",
+            "0,512 kg X 2,99 EUR/kg",
+            "0,512 kg × 2,99 €/kg",
+            "0,512 kg x 2,99 /kg",
+            "0.512 kg x 2.99 eur/kg",
+            "0,512 kg , 2,99",
+        ] {
+            assert_eq!(parse_cont(l), w, "{l}");
+        }
+        // A misread x is only tolerated on weight lines.
+        assert_eq!(parse_cont("2 Stk ? 0,99"), None);
+        assert_eq!(parse_cont("0,512 kg 2,99"), None);
+        assert_eq!(parse_cont("0,512 kg xx 2,99"), None);
+    }
+
+    #[test]
     fn dates_with_two_or_four_digit_years_parse() {
         let d = NaiveDate::from_ymd_opt(2026, 11, 8);
         assert_eq!(find_date("08.11.26 14:32"), d);
         assert_eq!(find_date("Datum: 08.11.2026"), d);
         assert_eq!(find_date("Tel 0221.000"), None);
         assert_eq!(find_date("32.13.26"), None);
+        assert_eq!(find_date("08.11,26 14:32"), d);
+        assert_eq!(find_date("08,11.26"), d);
+        assert_eq!(find_date("32.11,26"), None);
+        assert_eq!(find_date("1,19,05"), None);
+        assert_eq!(find_date("1.234,56"), None);
     }
 
     #[test]

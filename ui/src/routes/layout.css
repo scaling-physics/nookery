@@ -45,7 +45,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-	:root {
+	:root:not([data-theme='light']) {
 		--bg: #1a1510;
 		--surface: #231d16;
 		--surface-2: #2e261d;
@@ -80,6 +80,42 @@
 		--backdrop: rgb(8 6 3 / 0.62);
 		color-scheme: dark;
 	}
+}
+/* Settings > Appearance > Dark: same values as the block above. */
+:root[data-theme='dark'] {
+	--bg: #1a1510;
+	--surface: #231d16;
+	--surface-2: #2e261d;
+	--line: #3b3125;
+	--ink: #f1e7d6;
+	--ink-2: #c2b39b;
+	--ink-3: #94846c;
+	--sage: #a6c38c;
+	--sage-bg: #2a3322;
+	--saffron: #e8c063;
+	--saffron-bg: #3b2f17;
+	--terracotta: #ec9372;
+	--terracotta-bg: #40231a;
+	--ice: #9fbccd;
+	--ice-bg: #1f2c33;
+	--parsley: #8fb87a;
+	--lemon: #e8c14e;
+	--pumpkin: #e0874a;
+	--c-leaf: #8fb87a;
+	--c-lemon: #e8c14e;
+	--c-wheat: #d9b26a;
+	--c-rust: #d8765a;
+	--c-blue: #8fb0c6;
+	--c-brown: #b88a5c;
+	--c-pumpkin: #e0974a;
+	--c-plum: #c08aa6;
+	--c-terra: #d98a66;
+	--c-muted: #a59580;
+	--c-pea: #b9d68a;
+	--c-milk: #efe6d4;
+	--focus: #a6c38c;
+	--backdrop: rgb(8 6 3 / 0.62);
+	color-scheme: dark;
 }
 
 html,
@@ -135,6 +171,10 @@ label {
 	display: none;
 }
 @media (max-width: 639px) {
+	html,
+	body {
+		overflow-x: clip;
+	}
 	/* The banner handles the status bar; the bottom bar clears the nav bar. */
 	.banner .desk-only {
 		display: none !important;
@@ -195,9 +235,18 @@ label {
 	--art-wood: #cf9f62;
 	--art-wood-dk: #a8773f;
 	--art-line: #7a6548;
+	--art-enamel: #c8644a;
+	--art-enamel-in: #8f4331;
+	--art-slate: #5a534c;
+	--art-slate-dk: #3b3631;
+	/* extra food tints for the dish library (DishArt Colour) */
+	--c-cream: #f3e2b8;
+	--c-dark: #4a3626;
+	--c-pink: #e59a86;
+	--c-olive: #7d8a3e;
 }
 @media (prefers-color-scheme: dark) {
-	:root {
+	:root:not([data-theme='light']) {
 		--art-ceramic: #d9ccb4;
 		--art-ceramic-in: #b3a58c;
 		--art-iron: #6e6152;
@@ -206,6 +255,33 @@ label {
 		--art-wood: #a77a45;
 		--art-wood-dk: #7d5a2f;
 		--art-line: #17110b;
+		--art-enamel: #b4583f;
+		--art-enamel-in: #6f3324;
+		--art-slate: #6a625a;
+		--art-slate-dk: #463f39;
+		--c-cream: #dcc89c;
+		--c-dark: #6b5240;
+		--c-pink: #e8a593;
+		--c-olive: #a3b061;
 	}
+}
+/* Settings > Appearance > Dark: same values as the block above. */
+:root[data-theme='dark'] {
+	--art-ceramic: #d9ccb4;
+	--art-ceramic-in: #b3a58c;
+	--art-iron: #6e6152;
+	--art-iron-in: #463c32;
+	--art-iron-hi: #a69580;
+	--art-wood: #a77a45;
+	--art-wood-dk: #7d5a2f;
+	--art-line: #17110b;
+	--art-enamel: #b4583f;
+	--art-enamel-in: #6f3324;
+	--art-slate: #6a625a;
+	--art-slate-dk: #463f39;
+	--c-cream: #dcc89c;
+	--c-dark: #6b5240;
+	--c-pink: #e8a593;
+	--c-olive: #a3b061;
 }
 /* ---- end recipe art ---- */

@@ -184,6 +184,23 @@ impl Session {
         }
     }
 
+    /// Has the Mac read a receipt file (PDF, PNG, JPEG, HEIC; at most
+    /// `nookery_extract::MAX_BYTES`) into text.
+    pub fn read_receipt(&mut self, file: &[u8]) -> Result<nookery_extract::Extracted, SyncError> {
+        use base64::Engine;
+        send_json(
+            &mut self.chan,
+            &Request::ReadReceipt {
+                file: base64::engine::general_purpose::STANDARD.encode(file),
+            },
+        )?;
+        match self.recv_json()? {
+            Response::ReceiptText(x) => Ok(x),
+            Response::Error(e) => Err(SyncError::Peer(e)),
+            _ => Err(SyncError::Protocol),
+        }
+    }
+
     /// Runs a prompt on the Mac's local model, streaming the text.
     pub fn generate(
         &mut self,

@@ -316,7 +316,13 @@
 					<li class="day" class:done={d.cooked} style="--i:{i}">
 						<div class="flex gap-3">
 							<div class="art" aria-hidden="true">
-								<DishArt title={d.name} {categories} size={72} decorative />
+								<DishArt
+									title={d.name}
+									{categories}
+									ingredients={[...d.have.map((h) => h.ingredient), ...d.need]}
+									size={72}
+									decorative
+								/>
 							</div>
 							<div class="min-w-0 flex-1">
 								<p class="flex flex-wrap items-center gap-x-2 text-[13px] text-[var(--ink-2)]">

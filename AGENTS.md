@@ -96,6 +96,35 @@ this before changing anything; update it when reality and this file differ.
   learn. Chains: REWE, EDEKA, Netto, denn's (the user's stores). Fixtures in
   `tests/fixtures/` are SYNTHETIC; real receipts go in git-ignored
   `fixtures/private/` and should drive per-chain tweaks (none yet).
+  OCR tolerance: point decimals `\d{1,3}\.\d\d` without a comma (at a
+  line's end only with a VAT marker or a 2+ space gap, so `SPEZI 0.33`
+  stays a name), VAT letter glued to the price (`0,25A`, `1,53*B`), one
+  junk token after the price (<= 6 chars, no digits, no ASCII letters but
+  a leading A/B: `Bîšźš`), `X`/`×`/`*`, `FUR/kg`, one misread char for
+  the x on weight lines, `dd.mm,yy` dates if valid. Amounts are never
+  guessed: a lost minus fails `check_total` (only LEERGUT/PFANDBON are
+  sign-forced by keyword). `tests/fixtures/rewe-ocr.txt` (Apple Vision's
+  output on a synthetic photo) must parse like `rewe.txt`.
+- `crates/extract` (2026-11-10): receipt file bytes -> text for
+  `parse_text`. `kind_of` by magic bytes only (PDF, PNG, JPEG, HEIC,
+  text). `extract` refuses > 20 MB (`MAX_BYTES`); text passes through;
+  a PDF's text layer is read in pure Rust (`pdf-extract` glyph positions
+  -> runs -> rows, exact, ~1 ms, `Method::PdfText`). Photos and scanned
+  PDFs: OCR on macOS only with Apple Vision (`VNRecognizeTextRequest`,
+  accurate, de-DE + en-US, no language correction; objc2 crates under
+  `cfg(target_os = "macos")`; ImageIO decode + EXIF orientation;
+  CoreGraphics renders PDF pages ~300 dpi, <= 3000 px: at 6000 px Vision
+  lost text) -> `Method::Ocr`; elsewhere `OcrUnavailable` (the phone asks
+  the Mac). `rows` groups positioned words by de-skewed vertical centre
+  (skew estimated within ±8°), columns joined by 3 spaces; PDFs use the
+  skew-free `rows_exact` (the estimator paired names with the next row's
+  price on a monospaced PDF). Measured (M5): first OCR after process
+  start ~25 s (macOS loads its model), then 70-140 ms a photo. Chosen
+  over `ocrs` (2026-11-10, same synthetic photo): `ocrs` lost every minus
+  sign, read E as F, mixed `,`/`.` and split prices from their items.
+  Fixtures are SYNTHETIC renderings of `rewe.txt` (`tests/fixtures/
+  make.py`). Real check: `cargo test -p nookery-extract --release --
+  --nocapture`.
 - `crates/vision`: photo -> sightings with the local Ollama model
   (`qwen3-vl:8b-instruct`; NOT the `qwen3-vl:8b` tag, which is the thinking
   edition and takes minutes). `tiles` cuts the photo (EXIF applied) into
@@ -152,6 +181,9 @@ this before changing anything; update it when reality and this file differ.
   `download_model` resumes and checks sha256), `Generate` (the Mac's
   local Ollama only; `MacText` is a `TextModel`). Docs sync uses the Mac's
   clock (`server_time`); a badly skewed phone clock could lose an edit.
+  `ReadReceipt { file: base64 }` -> `ReceiptText(Extracted)`: the Mac's
+  `Provider::read_receipt` runs `nookery_extract::extract` (errors as
+  `friendly_extract_error` text); 20 MB raw fits the 64 MB frame.
 - `crates/llm` (M7): a GGUF model in the app's own process via llama.cpp
   (`llama-cpp-2`), behind feature `llama` (needs cmake + a C++ build: use
   the Android SDK's cmake 3.22.1 on PATH; desktop builds don't enable it).
@@ -171,6 +203,9 @@ this before changing anything; update it when reality and this file differ.
   `nookery receipt FILE|-` (`src/receipt.rs`) prints the parsed lines
   (1-based), each item's learned-alias proposal (`-> milk 1l, fridge` or
   `-> ?`) and the lines-vs-total check; read-only unless `--import`.
+  FILE may be text, PDF, PNG, JPEG or HEIC (`kind_of`): the first line
+  says `read from photo (OCR, N ms): check the lines` or `read from PDF
+  text (N ms)`; `--print-text` prints the extracted text and exits.
   `--store` overrides detection, `--set N=item[,qty][,place][,bb]` answers
   a line, `--skip N` leaves it untracked, `--ignore-total` allows a
   mismatch. Import refuses (writing nothing) on unknown store, re-import,
@@ -197,6 +232,13 @@ this before changing anything; update it when reality and this file differ.
   server-side (never trusts UI amounts) and refuses a total mismatch, no
   store, or a re-import (`CommandError::AlreadyImported`); field errors are
   `BadInput("<field>[:<line>]")`.
+  `read_receipt_file(file: base64) -> ReceiptFileView { text, method:
+  text|pdf_text|ocr, ms, pages, readBy }`: `extract` in `spawn_blocking`
+  (no store lock); on mobile `phone::read_receipt_via_mac`. Failures are
+  `CommandError::ReceiptUnreadable(code)`, code `unknown_format |
+  too_large | no_text | ocr_unavailable | pdf | image` (same codes on the
+  phone). The text goes into the receipt box and through the normal
+  parse/review/import.
   `src/photo.rs`: `scan_photo` (async: the model runs in `spawn_blocking`
   with the store unlocked; progress via `Channel<ScanProgress>`) keeps the
   last `Plan` in `AppState.last_scan` under a scan id; `apply_photo` runs
@@ -237,10 +279,15 @@ this before changing anything; update it when reality and this file differ.
   Undo, and writes after 6 s or on `visibilitychange`/`pagehide`/destroy
   (never if undone, never twice). Names shown via `displayName()`; stored
   names untouched.
-  `routes/receipt/+page.svelte`: paste or open a `.txt` receipt, review
+  `routes/receipt/+page.svelte`: paste text, "Open a receipt" (text,
+  PDF, photo) or "Take a photo" (Android / < 640 px), review
   and edit each item line (item, amount, place, best before, track),
   sum banner, import; `format.ts` has `formatCents`, `formatDiff`,
-  `parseFieldError`.
+  `parseFieldError`. A read file shows "Reading the receipt…" (the first
+  photo after start takes ~25 s), then a note above the review ("Read
+  from a photo on this Mac: check the amounts" / "Read from the PDF").
+  `lib/receipt/files.ts`: chunked base64, error and note texts. In a
+  browser `api.ts` serves the synthetic REWE text as `ocr`.
   `routes/photo/+page.svelte`: place + photo, scan with progress, review
   "Already here" (default Seen), "New?" (default Ignore), "Not in the
   photo" (read-only + Used up / Still there), Apply. `api.ts` serves a
@@ -255,7 +302,15 @@ this before changing anything; update it when reality and this file differ.
   the fridge because Fridge was preselected).
   `routes/settings/+page.svelte` (gear in the header): "Where the AI runs"
   per feature, what is sent, cloud model, Check cloud with the
-  `ollama signin` fix. `lib/CloudTag.svelte` marks cloud answers (ice);
+  `ollama signin` fix; Appearance: `lib/ThemeSwitch.svelte` (Auto / Light /
+  Dark, per device in `localStorage` `nookery.theme`, not synced;
+  `lib/theme.svelte.ts` sets `<html data-theme>` and, on the Mac, the
+  window theme for the title bar, `core:window:allow-set-theme`;
+  `static/theme.js` applies it before first paint, a file because the CSP
+  blocks inline scripts). Every dark token block in `layout.css` exists
+  twice (`@media dark :root:not([data-theme='light'])` and
+  `:root[data-theme='dark']`); `lib/theme.test.ts` fails if they drift.
+  `lib/CloudTag.svelte` marks cloud answers (ice);
   `lib/ErrorBanner.svelte` shows the sign-in error with a Settings link.
   Layout (2026-11-09): `routes/+layout.svelte` has a banner (logo mark
   64 px, wordmark, tagline "Your kitchen, kept kindly", a parsley sprig,
@@ -292,6 +347,17 @@ this before changing anything; update it when reality and this file differ.
   `app_data_dir()`, opened in `setup`; the bindings export is
   desktop-debug only (it crashed on Android's read-only filesystem).
   Android themes set the paper background (no white flash).
+  Android icon (2026-11-10): adaptive, built from `assets/logo.svg` (not
+  `pnpm tauri icon`, which would overwrite it with a padded square):
+  background = the tile's oat gradient as a vector
+  (`res/drawable/ic_launcher_background.xml`), foreground =
+  `assets/android/foreground.svg` (the nook at 44% of the 108 dp canvas,
+  inside the S25 squircle and the 66 dp safe circle), monochrome =
+  `assets/android/monochrome.svg` (themed icons); PNGs per density via
+  `sips -s format png` + Pillow resize, `mipmap-anydpi-v26/*.xml` ties
+  them together. `targetSdk = 36`: SDK 37 (Android 17) blocks the home
+  network unless the app asks for `ACCESS_LOCAL_NETWORK` at runtime, which
+  broke QR pairing / sync on the phone; request it before going to 37.
   Phone side (`src-tauri/src/phone.rs`): `Writer` = desktop `ChosenText`
   / on-phone `LlamaText` / `MacText`, chosen by `ai.phone_recipes` =
   auto | phone | mac (default auto: phone if the model is downloaded,
@@ -303,7 +369,12 @@ this before changing anything; update it when reality and this file differ.
   `ai.phone_threads`). Errors `PhoneModelMissing`, `MacUnreachable`.
   Photos on the phone go to the Mac (`Request::ScanPhoto`, resized to <=
   2000 px); the Mac scans with its own photo setting, the phone builds the
-  review locally and syncs after applying. QR pairing: the Mac shows
+  review locally and syncs after applying. Receipts on the phone
+  (`read_receipt_via_mac`): a text-layer PDF is read on the phone, photos
+  and scans go to the Mac; `receipt_image::shrink_for_ocr` re-encodes
+  PNG/JPEG > 4 MB or > 3000 px as JPEG q90 <= 3000 px (EXIF applied; not
+  ScanPhoto's 2000 px: receipts are long and OCR needs the pixels).
+  QR pairing: the Mac shows
   `nookery://pair?code=&addr=&name=` as an SVG made in Rust (`qrcode`),
   only while sharing is on; the phone scans it with
   `tauri-plugin-barcode-scanner` (mobile only; `capabilities/mobile.json`,
@@ -360,6 +431,14 @@ this before changing anything; update it when reality and this file differ.
   `NOOKERY_DATA_DIR=$(mktemp -d) pnpm tauri dev` while developing so the
   real kitchen data is never touched.
 - CLI: `cargo run -p nookery-cli -- ls --time`
+- Release (first: v0.2.0, 2026-11-14): bump the version in `Cargo.toml`
+  (workspace), the `version = "x.y.z", path` deps, `src-tauri/tauri.conf.json`
+  and `ui/package.json` (Tauri derives the Android versionCode, e.g. 0.2.0 =
+  2000; it must grow or the phone refuses the update). Run the checks above,
+  build the signed APK (`scripts/android.sh build --target aarch64 --apk`,
+  needs `keystore.properties`), check it with `apksigner verify`, commit, tag
+  `vX.Y.Z`, push, then `gh release create vX.Y.Z` with the APK attached as
+  `nookery-X.Y.Z-arm64.apk`.
 
 ## Measured (M0, 2026-11-08, M5 MacBook, release build)
 
@@ -381,7 +460,8 @@ this before changing anything; update it when reality and this file differ.
 1. **M0 (done)**: workspace, ledger, store, CLI, Tauri shell with
    Use first / Fridge / Freezer / Pantry and quick add.
 2. **M1 receipts** (`crates/receipt`; text import done 2026-11-08 in
-   CLI and app; next: real receipts, eBon PDF, OCR of paper). The user
+   CLI and app; PDF / photo files 2026-11-10 via `crates/extract`, tested
+   on SYNTHETIC files only; next: real receipts per chain). The user
    shops at REWE, EDEKA, Netto and denn's Biomarkt. Paper photos (OCR +
    per-store profiles: line format, weights `0,512 kg x 2,99`, Pfand,
    discounts, multi-buy) and digital receipts (REWE eBon PDF; EDEKA/Netto

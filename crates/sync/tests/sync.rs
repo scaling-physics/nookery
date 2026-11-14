@@ -67,6 +67,18 @@ impl Provider for Wrap {
     fn text_model(&self) -> Box<dyn TextModel> {
         Box::new(Fake)
     }
+    fn read_receipt(&self, bytes: &[u8]) -> Result<nookery_extract::Extracted, String> {
+        if bytes.starts_with(b"BAD") {
+            return Err("no text".into());
+        }
+        Ok(nookery_extract::Extracted {
+            text: format!("RECEIPT {} bytes", bytes.len()),
+            kind: nookery_extract::FileKind::Jpeg,
+            method: nookery_extract::Method::Ocr,
+            pages: 1,
+            ms: 3,
+        })
+    }
     fn scan(
         &self,
         image: &[u8],
@@ -458,4 +470,24 @@ fn scan_photo_runs_the_macs_scan_and_reports_progress() {
     assert!(peer
         .scan_photo(Location::Fridge, b"not a jpeg", &mut |_, _| {})
         .is_err());
+}
+
+#[test]
+fn read_receipt_runs_on_the_mac_and_carries_big_files() {
+    let r = rig();
+    let mut peer = connect(&r.addr(), &r.secret).unwrap();
+    peer.hello("phone").unwrap();
+    let x = peer.read_receipt(&tiny_jpeg()).unwrap();
+    assert!(x.text.starts_with("RECEIPT "));
+    assert_eq!(x.method, nookery_extract::Method::Ocr);
+    // A file at the size limit fits in one frame.
+    let big = vec![1u8; nookery_extract::MAX_BYTES];
+    let x = peer.read_receipt(&big).unwrap();
+    assert_eq!(x.text, format!("RECEIPT {} bytes", big.len()));
+    // A refusal arrives as the peer's message; the connection survives.
+    match peer.read_receipt(b"BAD") {
+        Err(nookery_sync::SyncError::Peer(m)) => assert_eq!(m, "no text"),
+        other => panic!("{other:?}"),
+    }
+    assert!(peer.model_info("qwen3:4b-instruct").is_ok());
 }

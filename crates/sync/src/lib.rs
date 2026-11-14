@@ -19,8 +19,8 @@ pub use client::{
 };
 pub use secret::Secret;
 pub use server::{
-    default_models_dir, scan_with, serve_sync, start, Provider, Server, StoreProvider,
-    SETTING_SYNC_SECRET,
+    default_models_dir, friendly_extract_error, scan_with, serve_sync, start, Provider, Server,
+    StoreProvider, SETTING_SYNC_SECRET,
 };
 
 use chrono::{DateTime, Utc};
@@ -71,6 +71,13 @@ pub enum Request {
         place: String,
         image: String,
     },
+    /// Read a receipt file (PDF, PNG, JPEG, HEIC; at most
+    /// `nookery_extract::MAX_BYTES` raw) into text on the Mac. `file` is
+    /// base64 in the JSON (about 27 MB at the limit; the frame limit is
+    /// 64 MB).
+    ReadReceipt {
+        file: String,
+    },
 }
 
 /// What the Mac's scan found, and which model said so.
@@ -116,6 +123,8 @@ pub enum Response {
         total: u32,
     },
     Scanned(ScanAnswer),
+    /// The text of a receipt file, for `ReadReceipt`.
+    ReceiptText(nookery_extract::Extracted),
     Error(String),
 }
 

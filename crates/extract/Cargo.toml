@@ -1,0 +1,21 @@
+[package]
+name = "nookery-extract"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+pdf-extract = "0.12.1"
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+nookery-receipt = { path = "../receipt" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-core-foundation = "0.3.2"
+objc2-core-graphics = "0.3.2"
+objc2-foundation = "0.3.2"
+objc2-image-io = "0.3.2"
+objc2-vision = "0.3.2"

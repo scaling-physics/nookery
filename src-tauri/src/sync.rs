@@ -249,6 +249,10 @@ impl Provider for AppProvider {
         let mut s = state.store.lock().map_err(|_| "busy".to_string())?;
         nookery_sync::serve_sync(&mut s, events, docs, since)
     }
+    /// A receipt file from the phone: text from the PDF layer or Apple Vision.
+    fn read_receipt(&self, bytes: &[u8]) -> Result<nookery_extract::Extracted, String> {
+        nookery_extract::extract(bytes).map_err(|e| nookery_sync::friendly_extract_error(&e))
+    }
     /// A photo from the phone: read with this Mac's own photo setting.
     fn scan(
         &self,

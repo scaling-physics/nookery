@@ -89,4 +89,21 @@
 		color: var(--sage);
 		background: var(--sage-bg);
 	}
+	@media (max-width: 639px) {
+		/* Two cards and a peek of the third on a 360 px phone. */
+		.strip {
+			margin: 0 -0.875rem;
+			padding: 0.1rem 0.875rem 0.5rem;
+			scroll-padding-left: 0.875rem;
+			scrollbar-width: none;
+		}
+		.strip::-webkit-scrollbar {
+			display: none;
+		}
+		.card {
+			width: 13rem;
+			gap: 0.45rem;
+			padding: 0.4rem 0.35rem 0.4rem 0.65rem;
+		}
+	}
 </style>

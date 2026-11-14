@@ -8,6 +8,7 @@ description = "Encrypted Mac <-> phone sync over the home network (nookery)."
 [dependencies]
 nookery-core.workspace = true
 nookery-store.workspace = true
+nookery-extract.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -17,9 +18,9 @@ getrandom = "0.3"
 hkdf = "0.13"
 sha2 = "0.11"
 zeroize = "1"
-nookery-recipes = { version = "0.1.0", path = "../recipes" }
+nookery-recipes = { version = "0.2.0", path = "../recipes" }
 dirs.workspace = true
-nookery-vision = { version = "0.1.0", path = "../vision" }
+nookery-vision = { version = "0.2.0", path = "../vision" }
 base64 = "0.23.1"
 
 [dev-dependencies]

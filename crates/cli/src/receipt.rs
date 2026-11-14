@@ -9,6 +9,8 @@ use std::time::Instant;
 use chrono::{NaiveDate, Utc};
 use clap::Args;
 use nookery_core::{parse_date, Location, Qty};
+use nookery_extract as extract;
+use nookery_extract::Method;
 use nookery_receipt::{
     parse_text, propose, to_events, Chain, CheckError, Confirmed, Line, LineKind, Proposal, Receipt,
 };
@@ -18,8 +20,11 @@ type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Args)]
 pub struct ReceiptArgs {
-    /// Receipt text file, or - for stdin.
+    /// Receipt file (text, PDF, PNG, JPEG or HEIC photo), or - for stdin.
     pub file: PathBuf,
+    /// Print the text read from the file and exit (for debugging parsing).
+    #[arg(long)]
+    pub print_text: bool,
     /// rewe, edeka, netto or denns (default: detected from the header).
     #[arg(long)]
     pub store: Option<Chain>,
@@ -199,19 +204,50 @@ fn proposal_note(p: &Proposal) -> String {
     }
 }
 
-fn read_input(file: &PathBuf) -> Res<String> {
-    if file.as_os_str() == "-" {
-        let mut s = String::new();
-        std::io::stdin().read_to_string(&mut s)?;
-        Ok(s)
+/// What was read from the file, and a one-line note on how.
+fn read_input(file: &PathBuf) -> Res<(String, Option<String>)> {
+    let bytes = if file.as_os_str() == "-" {
+        let mut b = Vec::new();
+        std::io::stdin().read_to_end(&mut b)?;
+        b
     } else {
-        std::fs::read_to_string(file)
-            .map_err(|e| format!("can't read {}: {e}", file.display()).into())
+        std::fs::read(file).map_err(|e| format!("can't read {}: {e}", file.display()))?
+    };
+    read_bytes(&bytes)
+}
+
+/// Detects the kind by content (never the extension) and extracts the text.
+fn read_bytes(bytes: &[u8]) -> Res<(String, Option<String>)> {
+    if extract::kind_of(bytes).is_none() {
+        return Err("not a text, PDF, PNG, JPEG or HEIC file".into());
     }
+    let got = extract::extract(bytes)?;
+    let note = match got.method {
+        Method::Text => None,
+        Method::PdfText => Some(format!("read from PDF text ({} ms)", got.ms)),
+        Method::Ocr => Some(format!(
+            "read from photo (OCR, {} ms): check the lines",
+            got.ms
+        )),
+    };
+    Ok((got.text, note))
 }
 
 pub fn run(store: &mut Store, args: ReceiptArgs, today: NaiveDate, time: bool) -> Res<()> {
-    let text = read_input(&args.file)?;
+    let (text, note) = read_input(&args.file)?;
+    if args.print_text {
+        if let Some(n) = &note {
+            eprintln!("{n}");
+        }
+        print!("{text}");
+        if !text.ends_with('\n') {
+            println!();
+        }
+        return Ok(());
+    }
+    if let Some(n) = &note {
+        println!("{n}");
+    }
     let t = Instant::now();
     let receipt = parse_text(&text, args.store)?;
     let parse_time = t.elapsed();
@@ -450,6 +486,30 @@ mod tests {
         assert!(build_confirmed(&r, &p, &[], &[99], today()).is_err());
         assert!(build_confirmed(&r, &p, &[set("1=milk")], &[1], today()).is_err());
         assert!(build_confirmed(&r, &p, &[set("1=milk,,,nonsense")], &[], today()).is_err());
+    }
+
+    #[test]
+    fn text_passes_through_and_garbage_is_refused() {
+        let (t, note) = read_bytes(REWE.as_bytes()).unwrap();
+        assert!(t.contains("REWE") && note.is_none());
+        assert!(read_bytes(&[0, 1, 2, 255, 254]).is_err());
+    }
+
+    #[test]
+    fn pdf_text_is_noted() {
+        let pdf = include_bytes!("../../extract/tests/fixtures/rewe-text.pdf");
+        let (t, note) = read_bytes(pdf).unwrap();
+        assert!(parse_text(&t, None).is_ok());
+        assert!(note.unwrap().starts_with("read from PDF text ("));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn photo_is_noted_as_ocr() {
+        let png = include_bytes!("../../extract/tests/fixtures/rewe-clean.png");
+        let (t, note) = read_bytes(png).unwrap();
+        assert!(!t.is_empty());
+        assert!(note.unwrap().contains("(OCR,"));
     }
 
     #[test]

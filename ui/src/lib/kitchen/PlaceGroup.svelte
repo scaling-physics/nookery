@@ -101,4 +101,13 @@
 		font-size: 0.875rem;
 		color: var(--ink-3);
 	}
+	@media (max-width: 639px) {
+		.card {
+			border-radius: 1rem;
+			padding-bottom: 0.15rem;
+		}
+		header {
+			padding: 0.7rem 0.85rem 0.3rem;
+		}
+	}
 </style>

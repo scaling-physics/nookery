@@ -12,12 +12,13 @@ path = "src/main.rs"
 nookery-core.workspace = true
 nookery-store.workspace = true
 nookery-receipt.workspace = true
+nookery-extract.workspace = true
 nookery-vision.workspace = true
 nookery-recipes.workspace = true
 nookery-plan.workspace = true
 chrono.workspace = true
 clap.workspace = true
-nookery-sync = { version = "0.1.0", path = "../sync" }
+nookery-sync = { version = "0.2.0", path = "../sync" }
 
 [dev-dependencies]
 image = { version = "0.25.10", default-features = false, features = ["png"] }

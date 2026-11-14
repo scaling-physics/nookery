@@ -5,6 +5,7 @@ mod phone;
 mod photo;
 mod plan;
 mod receipt;
+mod receipt_image;
 mod recipes;
 mod settings;
 mod sync;
@@ -80,6 +81,9 @@ pub enum CommandError {
     /// Phone: the paired Mac is needed and can't be used (detail: a
     /// friendly sentence).
     MacUnreachable(String),
+    /// A receipt file can't be read (detail: `unknown_format`, `too_large`,
+    /// `no_text`, `ocr_unavailable`, `pdf` or `image`).
+    ReceiptUnreadable(String),
     Internal,
 }
 
@@ -369,6 +373,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         lot_action,
         receipt::parse_receipt,
         receipt::import_receipt,
+        receipt::read_receipt_file,
         photo::scan_photo,
         photo::apply_photo,
         recipes::list_templates,
@@ -378,6 +383,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         recipes::suggest_recipes,
         recipes::write_recipe,
         recipes::recipe_chat,
+        recipes::pick_dish_art,
         settings::get_ai_settings,
         settings::set_ai_settings,
         settings::check_cloud,

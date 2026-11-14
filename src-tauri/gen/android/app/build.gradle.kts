@@ -30,7 +30,7 @@ android {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "dev.nookery.app"
         minSdk = 24
-        targetSdk = 37
+        targetSdk = 36 // 37 blocks the home network without ACCESS_LOCAL_NETWORK (Android 17 local network protection)
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }

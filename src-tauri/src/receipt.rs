@@ -8,6 +8,7 @@
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use nookery_core::{parse_date, Alias, Location, Qty};
+use nookery_extract::{ExtractError, Extracted, Method};
 use nookery_receipt::{
     parse_text, propose, to_events, Chain, Confirmed, ImportError, LineKind, ParseError, Receipt,
 };
@@ -91,6 +92,89 @@ pub struct ReceiptImportInput {
 pub struct ImportResultView {
     pub added: u32,
     pub learned: u32,
+}
+
+/// A receipt file read into text (PDF text layer, OCR of a photo, or plain text).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiptReadMethod {
+    Text,
+    PdfText,
+    Ocr,
+}
+
+#[derive(Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiptFileView {
+    /// Goes into the receipt text box, then through `parse_receipt`.
+    pub text: String,
+    pub method: ReceiptReadMethod,
+    pub ms: u32,
+    pub pages: u32,
+    /// Which device did the reading ("this Mac").
+    pub read_by: String,
+}
+
+fn unreadable(reason: &str) -> CommandError {
+    CommandError::ReceiptUnreadable(reason.into())
+}
+
+/// `ExtractError` -> `ReceiptUnreadable(<reason code>)`.
+pub fn extract_error(e: &ExtractError) -> CommandError {
+    unreadable(match e {
+        ExtractError::UnknownFormat => "unknown_format",
+        ExtractError::TooLarge { .. } => "too_large",
+        ExtractError::NoText => "no_text",
+        ExtractError::OcrUnavailable => "ocr_unavailable",
+        ExtractError::Pdf(_) => "pdf",
+        ExtractError::Image(_) => "image",
+    })
+}
+
+pub fn receipt_view(x: Extracted, read_by: &str) -> ReceiptFileView {
+    ReceiptFileView {
+        text: x.text,
+        method: match x.method {
+            Method::Text => ReceiptReadMethod::Text,
+            Method::PdfText => ReceiptReadMethod::PdfText,
+            Method::Ocr => ReceiptReadMethod::Ocr,
+        },
+        ms: x.ms.min(u32::MAX as u64) as u32,
+        pages: x.pages,
+        read_by: read_by.into(),
+    }
+}
+
+/// Reads the file on this device (blocking; OCR is Apple Vision, Mac only).
+#[cfg_attr(mobile, allow(dead_code))] // the phone goes through phone::read_receipt_via_mac
+pub fn read_receipt_file_in(bytes: &[u8]) -> Result<ReceiptFileView, CommandError> {
+    let x = nookery_extract::extract(bytes).map_err(|e| extract_error(&e))?;
+    Ok(receipt_view(x, "this Mac"))
+}
+
+/// `file` = base64 of the file's bytes. No store lock: nothing is written.
+#[tauri::command]
+#[specta::specta]
+pub async fn read_receipt_file(
+    state: State<'_, AppState>,
+    file: String,
+) -> Result<ReceiptFileView, CommandError> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(file.trim())
+        .map_err(|_| bad("file"))?;
+    #[cfg(mobile)]
+    {
+        let x = crate::phone::read_receipt_via_mac(&state, &bytes).await?;
+        Ok(receipt_view(x, "your Mac"))
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = &state;
+        tauri::async_runtime::spawn_blocking(move || read_receipt_file_in(&bytes))
+            .await
+            .map_err(|_| CommandError::Internal)?
+    }
 }
 
 /// Parses `text`; a chosen `store` overrides detection.
@@ -366,5 +450,43 @@ mod tests {
         };
         let e = import_receipt_in(&mut store, &bad_total, today(), now).unwrap_err();
         assert_eq!(field(e), "total");
+    }
+
+    #[test]
+    fn text_files_pass_through_and_junk_is_unreadable() {
+        let v = read_receipt_file_in(REWE.as_bytes()).unwrap();
+        assert_eq!(
+            (v.method, v.read_by.as_str()),
+            (ReceiptReadMethod::Text, "this Mac")
+        );
+        assert!(v.text.contains("REWE"));
+        assert!(matches!(
+            read_receipt_file_in(&[0, 159, 146, 150, 0]),
+            Err(CommandError::ReceiptUnreadable(r)) if r == "unknown_format"
+        ));
+    }
+
+    #[test]
+    fn a_pdf_with_a_text_layer_reads_exactly() {
+        let pdf = include_bytes!("../../crates/extract/tests/fixtures/rewe-text.pdf");
+        let v = read_receipt_file_in(pdf).unwrap();
+        assert_eq!(v.method, ReceiptReadMethod::PdfText);
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!(
+            parse_receipt_in(&store, &v.text, None)
+                .unwrap()
+                .store
+                .as_deref(),
+            Some("REWE")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_photo_is_read_by_ocr() {
+        let png = include_bytes!("../../crates/extract/tests/fixtures/rewe-clean.png");
+        let v = read_receipt_file_in(png).unwrap();
+        assert_eq!(v.method, ReceiptReadMethod::Ocr);
+        assert!(v.text.contains("REWE"));
     }
 }

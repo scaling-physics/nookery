@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { api } from '#lib/api.js';
 	import type { ReceiptLineView, ReceiptView } from '#lib/bindings.js';
+	import { fileToBase64, readError, readNote } from '#lib/receipt/files.js';
+	import { isAndroid } from '#lib/platform.js';
+	import ErrorBanner from '#lib/ErrorBanner.svelte';
 	import { formatCents, formatDiff, parseFieldError } from '#lib/format.js';
 
 	const STORES = ['REWE', 'EDEKA', 'Netto', "denn's"];
@@ -19,7 +22,22 @@
 	let error = $state('');
 	let badRow = $state<{ line: number; field: string } | null>(null);
 	let busy = $state(false);
+	// Phone-sized screens get a camera button (a desktop browser has no camera shortcut).
+	let narrow = $state(
+		typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches
+	);
+	let reading = $state(false);
+	let readFrom = $state<'text' | 'pdf_text' | 'ocr'>('text');
+	let readBy = $state('this Mac');
 	let done = $state<{ added: number; learned: number } | null>(null);
+
+	$effect(() => {
+		const mq = window.matchMedia('(max-width: 639px)');
+		const on = () => (narrow = mq.matches);
+		on();
+		mq.addEventListener('change', on);
+		return () => mq.removeEventListener('change', on);
+	});
 
 	const tracked = $derived(
 		receipt ? receipt.lines.filter((l) => l.kind === 'item' && rows[l.index]?.track) : []
@@ -91,9 +109,28 @@
 	}
 
 	async function loadFile(e: Event) {
-		const file = (e.currentTarget as HTMLInputElement).files?.[0];
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = ''; // the same file can be chosen again
 		if (!file) return;
-		text = await file.text();
+		error = '';
+		readFrom = 'text';
+		reading = true;
+		try {
+			const r = await api.readReceiptFile(await fileToBase64(file));
+			if (r.status === 'error') {
+				error = readError(r.error);
+				return;
+			}
+			text = r.data.text;
+			readFrom = r.data.method;
+			readBy = r.data.readBy;
+		} catch {
+			error = 'Could not open that file.';
+			return;
+		} finally {
+			reading = false;
+		}
 		await parse();
 	}
 
@@ -136,6 +173,7 @@
 		receipt = null;
 		done = null;
 		text = '';
+		readFrom = 'text';
 		store = '';
 		error = '';
 	}
@@ -191,15 +229,45 @@
 				<label
 					class="chip cursor-pointer focus-within:outline-2 focus-within:outline-[var(--focus)]"
 				>
-					Open a .txt file
-					<input type="file" accept=".txt,text/plain" class="sr-only" onchange={loadFile} />
+					Open a receipt
+					<input
+						type="file"
+						accept=".txt,.pdf,.png,.jpg,.jpeg,.heic,image/*,application/pdf,text/plain"
+						class="sr-only"
+						disabled={reading}
+						onchange={loadFile}
+					/>
 				</label>
-				<p class="text-xs text-[var(--ink-3)]">PDF and photos of receipts come later.</p>
+				{#if isAndroid || narrow}
+					<label
+						class="chip cursor-pointer focus-within:outline-2 focus-within:outline-[var(--focus)]"
+					>
+						Take a photo
+						<input
+							type="file"
+							accept="image/*"
+							capture="environment"
+							class="sr-only"
+							disabled={reading}
+							onchange={loadFile}
+						/>
+					</label>
+				{/if}
+				<p class="text-xs text-[var(--ink-3)]">A photo, a PDF or a text file.</p>
 			</div>
 		</section>
 
+		{#if reading}
+			<p
+				role="status"
+				class="mb-4 rounded-2xl bg-[var(--surface-2)] p-3 text-sm text-[var(--ink-2)]"
+			>
+				Reading the receipt… The first photo takes a little longer.
+			</p>
+		{/if}
+
 		{#if error}
-			<p role="alert" class="mb-4 text-sm text-[var(--terracotta)]">{error}</p>
+			<ErrorBanner message={error} class="mb-4" />
 		{/if}
 
 		{#if receipt}
@@ -227,6 +295,15 @@
 						{receipt.date ?? 'No date found'}
 					</p>
 				</div>
+
+				{#if readNote(readFrom, readBy)}
+					<p
+						role="status"
+						class="mb-4 rounded-2xl border border-[var(--saffron)] bg-[var(--saffron-bg)] p-3 text-sm text-[var(--saffron)]"
+					>
+						{readNote(readFrom, readBy)}
+					</p>
+				{/if}
 
 				{#if receipt.alreadyImported}
 					<p

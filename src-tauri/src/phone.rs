@@ -345,6 +345,41 @@ pub fn scan_via_mac(
     peer.scan_photo(place, jpeg, progress).map_err(mac_error)
 }
 
+/// Reads a receipt file into text. A PDF with a text layer is read right
+/// here (pure Rust); photos and scanned PDFs go to the paired Mac (Apple
+/// Vision), shrunk first if large. The store is unlocked while waiting.
+#[allow(dead_code)] // called under cfg(mobile)
+pub async fn read_receipt_via_mac(
+    state: &tauri::State<'_, AppState>,
+    bytes: &[u8],
+) -> Result<nookery_extract::Extracted, CommandError> {
+    use nookery_extract::ExtractError as E;
+    // Same error codes as on the Mac (`receipt::extract_error`), so the UI
+    // shows the same friendly text.
+    match nookery_extract::extract(bytes) {
+        Ok(x) => return Ok(x),
+        Err(E::OcrUnavailable) => {}
+        Err(e) => return Err(super::receipt::extract_error(&e)),
+    }
+    let target = mac_target(state)?;
+    let file = if bytes.starts_with(b"%PDF") {
+        bytes.to_vec()
+    } else {
+        super::receipt_image::shrink_for_ocr(bytes)
+    };
+    if file.len() > nookery_extract::MAX_BYTES {
+        return Err(super::receipt::extract_error(&E::TooLarge {
+            max_mb: (nookery_extract::MAX_BYTES / (1024 * 1024)) as u32,
+        }));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut peer = connect(&target.0, &target.1).map_err(mac_error)?;
+        peer.read_receipt(&file).map_err(mac_error)
+    })
+    .await
+    .map_err(|_| CommandError::Internal)?
+}
+
 // --- commands ---------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Type)]

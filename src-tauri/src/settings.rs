@@ -43,9 +43,30 @@ impl From<AiModeView> for AiMode {
     }
 }
 
+/// How recipe pictures are chosen (decoration; never uses the cloud).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecipeArtView {
+    /// From the recipe's name and ingredients, in the UI. Default.
+    Matched,
+    /// The local recipe model picks (`pick_dish_art`).
+    Model,
+}
+
+/// Stored per device, like the other AI settings.
+pub const SETTING_RECIPE_ART: &str = "ai.recipe_art";
+
+fn recipe_art_in(store: &Store) -> Result<RecipeArtView, CommandError> {
+    Ok(match store.setting(SETTING_RECIPE_ART)?.as_deref() {
+        Some("model") => RecipeArtView::Model,
+        _ => RecipeArtView::Matched,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AiSettingsView {
+    pub recipe_art: RecipeArtView,
     pub photos: AiModeView,
     pub recipes: AiModeView,
     pub cloud_model: String,
@@ -63,6 +84,7 @@ pub struct CloudCheckView {
 
 pub fn get_in(store: &Store) -> Result<AiSettingsView, CommandError> {
     Ok(AiSettingsView {
+        recipe_art: recipe_art_in(store)?,
         photos: store.ai_mode(SETTING_PHOTOS_AI)?.into(),
         recipes: store.ai_mode(SETTING_RECIPES_AI)?.into(),
         cloud_model: store.cloud_model()?,
@@ -78,6 +100,13 @@ pub fn set_in(store: &mut Store, input: &AiSettingsView) -> Result<AiSettingsVie
     store.set_setting(SETTING_PHOTOS_AI, AiMode::from(input.photos).as_str())?;
     store.set_setting(SETTING_RECIPES_AI, AiMode::from(input.recipes).as_str())?;
     store.set_setting(SETTING_CLOUD_MODEL, model)?;
+    store.set_setting(
+        SETTING_RECIPE_ART,
+        match input.recipe_art {
+            RecipeArtView::Matched => "matched",
+            RecipeArtView::Model => "model",
+        },
+    )?;
     get_in(store)
 }
 
@@ -151,6 +180,7 @@ mod tests {
 
     fn settings(photos: AiModeView, recipes: AiModeView, model: &str) -> AiSettingsView {
         AiSettingsView {
+            recipe_art: RecipeArtView::Matched,
             photos,
             recipes,
             cloud_model: model.into(),
@@ -164,6 +194,15 @@ mod tests {
         assert_eq!(d.photos, AiModeView::Local);
         assert_eq!(d.recipes, AiModeView::Local);
         assert_eq!(d.cloud_model, CLOUD_MODEL);
+        assert_eq!(d.recipe_art, RecipeArtView::Matched);
+        store.set_setting(SETTING_RECIPE_ART, "garbage").unwrap();
+        assert_eq!(get_in(&store).unwrap().recipe_art, RecipeArtView::Matched);
+        let mut art = settings(AiModeView::Local, AiModeView::Local, "");
+        art.recipe_art = RecipeArtView::Model;
+        assert_eq!(
+            set_in(&mut store, &art).unwrap().recipe_art,
+            RecipeArtView::Model
+        );
         let v = set_in(
             &mut store,
             &settings(AiModeView::Cloud, AiModeView::Fallback, "  other:1b-cloud "),

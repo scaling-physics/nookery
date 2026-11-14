@@ -529,6 +529,8 @@ pub fn write_recipe(
     Ok(parse_recipe(&answer))
 }
 
+pub mod art;
+pub use art::{art_prompt, parse_art, pick_art, ArtDish, ArtPick};
 mod chat;
 pub use chat::{chat, chat_prompt, parse_chat, ChatAnswer, ChatRole, ChatTurn, MAX_HISTORY};
 mod helpers;

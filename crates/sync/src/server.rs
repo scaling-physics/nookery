@@ -53,6 +53,23 @@ pub trait Provider: Send + Sync {
         let answered_by = format!("{} (this Mac)", model.name());
         scan_with(&model, answered_by, false, image, place, progress)
     }
+    /// Reads a receipt file into text (PDF text layer, or Apple Vision OCR
+    /// on a Mac). Blocking.
+    fn read_receipt(&self, bytes: &[u8]) -> Result<nookery_extract::Extracted, String> {
+        nookery_extract::extract(bytes).map_err(|e| friendly_extract_error(&e))
+    }
+}
+
+/// A message for people for a failed receipt read.
+pub fn friendly_extract_error(e: &nookery_extract::ExtractError) -> String {
+    use nookery_extract::ExtractError as E;
+    match e {
+        E::UnknownFormat => "That file isn't a PDF, PNG, JPEG, HEIC or text file.".into(),
+        E::NoText => "No text could be found in that file. Try a sharper, well-lit photo.".into(),
+        E::OcrUnavailable => "This Mac can't read photos of receipts.".into(),
+        E::TooLarge { max_mb } => format!("That file is too large (over {max_mb} MB)."),
+        other => format!("That receipt couldn't be read: {other}."),
+    }
 }
 
 /// Runs the normal scan with `model`.
@@ -373,6 +390,16 @@ fn handle<S: Read + Write>(
             sent?;
             match result {
                 Ok(a) => send_json(chan, &Response::Scanned(a)),
+                Err(e) => send_json(chan, &Response::Error(e)),
+            }
+        }
+        Request::ReadReceipt { file } => {
+            use base64::Engine;
+            let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(file.trim()) else {
+                return send_json(chan, &Response::Error("That file can't be read.".into()));
+            };
+            match provider.read_receipt(&bytes) {
+                Ok(x) => send_json(chan, &Response::ReceiptText(x)),
                 Err(e) => send_json(chan, &Response::Error(e)),
             }
         }

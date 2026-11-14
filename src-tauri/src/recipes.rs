@@ -11,10 +11,11 @@
 //! Errors: `BadInput("name" | "body" | "ids" | "stock" | "index")`.
 
 use chrono::{Local, NaiveDate, Utc};
-use nookery_core::{category, status, LotId};
+use nookery_core::{category, status, AiMode, LotId};
 use nookery_recipes::{
-    chat as chat_text, stock_from, suggest, write_recipe as write_recipe_text, ChatRole, ChatTurn,
-    Recipe, RecipeError, Request, StockItem, Suggestion, Suggestions, TextModel,
+    chat as chat_text, pick_art, stock_from, suggest, write_recipe as write_recipe_text, ArtDish,
+    ArtPick, ChatRole, ChatTurn, Recipe, RecipeError, Request, StockItem, Suggestion, Suggestions,
+    TextModel,
 };
 use nookery_store::{Store, StoreError, SETTING_RECIPES_AI};
 use serde::{Deserialize, Serialize};
@@ -828,6 +829,133 @@ mod tests {
         assert!(matches!(
             chat_in(&q, &stock, &input("  "), &mut |_| {}),
             Err(CommandError::BadInput(f)) if f == "message"
+        ));
+    }
+}
+
+// ---- recipe pictures ----
+
+#[derive(Debug, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtDishInput {
+    pub title: String,
+    pub ingredients: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtOption {
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Debug, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtPickView {
+    pub kind: String,
+    pub show: Vec<String>,
+}
+
+/// Most dishes per request.
+const MAX_ART_DISHES: usize = 8;
+
+/// The picture choice with any model: pure, so it is tested without Tauri.
+pub fn pick_dish_art_with(
+    model: &dyn TextModel,
+    dishes: &[ArtDishInput],
+    options: &[ArtOption],
+) -> Result<Vec<Option<ArtPickView>>, CommandError> {
+    if dishes.len() > MAX_ART_DISHES {
+        return Err(bad("dishes"));
+    }
+    let dishes: Vec<ArtDish> = dishes
+        .iter()
+        .map(|d| ArtDish {
+            title: d.title.clone(),
+            ingredients: d.ingredients.clone(),
+        })
+        .collect();
+    let options: Vec<(String, String)> = options
+        .iter()
+        .map(|o| (o.id.clone(), o.label.clone()))
+        .collect();
+    Ok(pick_art(model, &dishes, &options)?
+        .into_iter()
+        .map(|p| p.map(|ArtPick { kind, show }| ArtPickView { kind, show }))
+        .collect())
+}
+
+/// The recipe model picks the closest dish kind and the ingredients to show.
+/// Always local (this Mac's Ollama, or on the phone the phone model / the
+/// paired Mac), even when recipes are set to cloud: it is decoration, and
+/// nothing is sent to the cloud without the user's choice. The UI falls back
+/// to word matching on any error.
+#[tauri::command]
+#[specta::specta]
+pub async fn pick_dish_art(
+    state: State<'_, AppState>,
+    dishes: Vec<ArtDishInput>,
+    options: Vec<ArtOption>,
+) -> Result<Vec<Option<ArtPickView>>, CommandError> {
+    if dishes.len() > MAX_ART_DISHES {
+        return Err(bad("dishes"));
+    }
+    let model = Writer::for_state(&state, AiMode::Local, "")?;
+    tauri::async_runtime::spawn_blocking(move || pick_dish_art_with(&model, &dishes, &options))
+        .await
+        .map_err(|_| CommandError::Internal)?
+}
+
+#[cfg(test)]
+mod art_tests {
+    use super::*;
+
+    struct Fake(&'static str);
+    impl TextModel for Fake {
+        fn name(&self) -> String {
+            "fake".into()
+        }
+        fn generate(
+            &self,
+            _: &str,
+            max: u32,
+            _: &mut dyn FnMut(&str),
+        ) -> Result<String, RecipeError> {
+            assert_eq!(max, 40);
+            Ok(self.0.into())
+        }
+    }
+
+    #[test]
+    fn picks_are_checked_against_the_options_and_ingredients() {
+        let dishes = vec![ArtDishInput {
+            title: "Eggs".into(),
+            ingredients: vec!["egg".into(), "tomato".into()],
+        }];
+        let options = vec![ArtOption {
+            id: "shakshuka".into(),
+            label: "Shakshuka".into(),
+        }];
+        let r =
+            pick_dish_art_with(&Fake("1 | shakshuka | egg, unicorn"), &dishes, &options).unwrap();
+        assert_eq!(
+            r,
+            vec![Some(ArtPickView {
+                kind: "shakshuka".into(),
+                show: vec!["egg".into()]
+            })]
+        );
+        let r = pick_dish_art_with(&Fake("1 | nope | egg"), &dishes, &options).unwrap();
+        assert_eq!(r, vec![None]);
+        let many: Vec<ArtDishInput> = (0..9)
+            .map(|_| ArtDishInput {
+                title: "x".into(),
+                ingredients: vec![],
+            })
+            .collect();
+        assert!(matches!(
+            pick_dish_art_with(&Fake(""), &many, &options),
+            Err(CommandError::BadInput(f)) if f == "dishes"
         ));
     }
 }

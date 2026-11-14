@@ -4,7 +4,9 @@
 	import SyncPanel from '#lib/SyncPanel.svelte';
 	import PhoneAi from '#lib/phone/PhoneAi.svelte';
 	import { onPhone } from '#lib/phone/env.js';
-	import type { AiModeView, AiSettingsView, CloudCheckView } from '#lib/bindings.js';
+	import type { AiModeView, AiSettingsView, CloudCheckView, RecipeArtView } from '#lib/bindings.js';
+	import { art } from '#lib/art/pick.svelte.js';
+	import ThemeSwitch from '#lib/ThemeSwitch.svelte';
 
 	const DEFAULT_MODEL = 'gemma4:31b-cloud';
 	const SIGN_IN = 'ollama signin';
@@ -17,6 +19,18 @@
 			hint: 'Uses the cloud only when the model on this Mac is missing or fails.'
 		},
 		{ id: 'cloud', label: 'Cloud', hint: 'Faster and a bigger model. Free with limits.' }
+	];
+	const ART_MODES: { id: RecipeArtView; label: string; hint: string }[] = [
+		{
+			id: 'matched',
+			label: 'Matched from the recipe’s name and ingredients',
+			hint: 'Instant, works everywhere.'
+		},
+		{
+			id: 'model',
+			label: 'Picked by the recipe model',
+			hint: 'About a second per batch of ideas on this Mac; on the phone it uses the phone’s model or your Mac. Nothing leaves your devices.'
+		}
 	];
 	const GROUPS = [
 		{
@@ -32,6 +46,7 @@
 	];
 
 	let settings = $state<AiSettingsView>({
+		recipeArt: 'matched',
 		photos: 'local',
 		recipes: 'local',
 		cloudModel: DEFAULT_MODEL
@@ -53,8 +68,10 @@
 
 	onMount(async () => {
 		const r = await api.getAiSettings();
-		if (r.status === 'ok') settings = r.data;
-		else error = 'Could not read the settings.';
+		if (r.status === 'ok') {
+			settings = r.data;
+			art.mode = r.data.recipeArt;
+		} else error = 'Could not read the settings.';
 		loaded = true;
 	});
 
@@ -63,6 +80,7 @@
 		const r = await api.setAiSettings({ ...settings });
 		if (r.status === 'ok') {
 			settings = r.data;
+			art.mode = r.data.recipeArt;
 			saved = true;
 			clearTimeout(savedTimer);
 			savedTimer = setTimeout(() => (saved = false), 2000);
@@ -209,6 +227,37 @@
 
 		<div class="mt-8"><SyncPanel /></div>
 	{/if}
+
+	<fieldset class="card mt-8" class:opacity-60={!loaded}>
+		<legend class="px-1 text-[15px] font-semibold">Recipe pictures</legend>
+		<div class="mt-1 grid gap-1">
+			{#each ART_MODES as m (m.id)}
+				<label class="option">
+					<input
+						type="radio"
+						name="recipe-art"
+						value={m.id}
+						bind:group={settings.recipeArt}
+						onchange={save}
+						disabled={!loaded}
+						class="mt-1 h-4 w-4 shrink-0 accent-[var(--sage)]"
+					/>
+					<span>
+						<span class="block text-[15px]">{m.label}</span>
+						<span class="block text-sm text-[var(--ink-2)]">{m.hint}</span>
+					</span>
+				</label>
+			{/each}
+		</div>
+	</fieldset>
+
+	<section class="card mt-8" aria-labelledby="appearance-h">
+		<h2 id="appearance-h" class="text-[15px] font-semibold">Appearance</h2>
+		<div class="mt-3"><ThemeSwitch /></div>
+		<p class="mt-2 text-sm text-[var(--ink-2)]">
+			Auto follows this device’s light or dark setting. Saved on this device only.
+		</p>
+	</section>
 </main>
 
 <style>

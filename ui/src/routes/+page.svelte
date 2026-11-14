@@ -108,7 +108,7 @@
 
 <svelte:window {onkeydown} />
 
-<main class="mx-auto max-w-6xl px-5 pt-6 pb-24 sm:px-8">
+<main class="kitchen mx-auto max-w-6xl px-5 pt-6 pb-24 sm:px-8">
 	<header class="mb-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
 		<div>
 			<h1 class="text-[20px] font-semibold tracking-tight">Kitchen</h1>
@@ -123,7 +123,7 @@
 				{/if}
 			</p>
 		</div>
-		<nav class="flex gap-2" aria-label="Add stock">
+		<nav class="add-nav flex gap-2" aria-label="Add stock">
 			<a href="/photo" class="pill"><Icon name="camera" size={15} /> Scan a photo</a>
 			<a href="/receipt" class="pill"><Icon name="receipt" size={15} /> Import receipt</a>
 		</nav>
@@ -137,7 +137,7 @@
 
 	<UseFirst lots={soon} onremove={(l, k) => removeLots([l], k)} />
 
-	<div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2.5">
+	<div class="tools mb-4 flex flex-wrap items-center gap-x-3 gap-y-2.5">
 		<label class="search">
 			<span class="sr-only">Search the kitchen</span>
 			<Icon name="search" size={16} />
@@ -210,9 +210,9 @@
 		{/snippet}
 		{#if filter === 'all'}
 			<!-- Fridge on the left; freezer and pantry stacked on the right. -->
-			<div class="grid items-start gap-5 lg:grid-cols-2">
+			<div class="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
 				{@render group(PLACES[0])}
-				<div class="flex flex-col gap-5">
+				<div class="flex min-w-0 flex-col gap-5">
 					{@render group(PLACES[1])}
 					{@render group(PLACES[2])}
 				</div>
@@ -325,5 +325,69 @@
 	.fchip.on span {
 		color: inherit;
 		opacity: 0.8;
+	}
+
+	/* Phone: proportions of a phone app, not a shrunken desktop. 14 px page
+	   gutters, compact controls (44 px targets without extra padding), the
+	   filter chips scroll edge to edge, cards closer together. */
+	@media (max-width: 639px) {
+		.kitchen {
+			padding-left: 0.875rem;
+			padding-right: 0.875rem;
+			padding-top: 0.9rem;
+		}
+		.kitchen > header {
+			margin-bottom: 0.75rem;
+			row-gap: 0.6rem;
+		}
+		.add-nav {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			width: 100%;
+			gap: 0.5rem;
+		}
+		.add-nav .pill {
+			justify-content: center;
+			min-height: 2.75rem;
+			padding: 0 0.6rem;
+		}
+		.tools {
+			row-gap: 0.5rem;
+			margin-bottom: 0.75rem;
+		}
+		.search {
+			padding: 0 0.9rem;
+			min-height: 2.75rem;
+		}
+		.search input {
+			min-height: 0;
+			padding: 0;
+		}
+		.tools > div {
+			margin: 0 -0.875rem;
+			padding: 0 0.875rem;
+		}
+		.chips {
+			flex: 1;
+			min-width: 0;
+			scrollbar-width: none;
+		}
+		.chips::-webkit-scrollbar {
+			display: none;
+		}
+		.fchip {
+			min-height: 2.5rem;
+			padding: 0 0.85rem;
+		}
+		.tools .pill {
+			min-height: 2.5rem;
+			padding: 0 0.85rem;
+		}
+		.grid {
+			gap: 0.75rem;
+		}
+		.grid > div {
+			gap: 0.75rem;
+		}
 	}
 </style>

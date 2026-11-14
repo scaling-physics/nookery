@@ -23,6 +23,9 @@ import type {
 	ShoppingItemView,
 	ShoppingView,
 	AiModeView,
+	ArtDishInput,
+	ArtOption,
+	ArtPickView,
 	AddInput,
 	AiSettingsView,
 	ApplyPhotoInput,
@@ -38,6 +41,7 @@ import type {
 	RecipeChatInput,
 	RecipeChatView,
 	RecipeView,
+	ReceiptFileView,
 	ReceiptImportInput,
 	ReceiptLineView,
 	ReceiptView,
@@ -53,6 +57,7 @@ import type {
 	WriteRecipeInput
 } from './bindings.js';
 
+import { matchDish } from './art/dishes.js';
 import { addDays, groupShopping, nextMonday, isoDate } from './plan/helpers.js';
 
 export type Result<T> = { status: 'ok'; data: T } | { status: 'error'; error: CommandError };
@@ -272,10 +277,44 @@ function fakeApi() {
 			lines
 		};
 	};
+	// SYNTHETIC receipt text (the REWE test fixture), "read from a photo".
+	const SAMPLE_RECEIPT_TEXT = `REWE Markt GmbH
+Beispielstrasse 12
+50667 Koeln
+Tel.: 0221 000000
+UID Nr.: DE000000000
+--------------------------------
+BIO H-MILCH 1,5%             1,19 B
+JOGHURT NATUR                1,98 B
+   2 Stk x      0,99
+BANANEN                      1,53 B
+   0,512 kg x   2,99 EUR/kg
+MINERALWASSER 1,5L           0,79 A
+PFAND EINWEG                 0,25 A
+KAESE GOUDA                  2,49 B
+Sofort-Rabatt               -0,50
+BROT DINKEL                  2,29 B
+LEERGUTBON                  -0,25
+--------------------------------
+SUMME                EUR     9,77
+Geg. BAR                    20,00
+Rueckgeld                   10,23
+Steuer %     Netto    Steuer   Brutto
+A 19%         0,87      0,17     1,04
+B  7%         7,67      0,54     8,21
+08.11.26 14:32
+TSE-Signatur: 0000000000
+Vielen Dank fuer Ihren Einkauf!
+`;
 	// SYNTHETIC photo review: invented, no image involved.
 	// SYNTHETIC AI settings; "signed in" flips on the first cloud check, so
 	// both states can be previewed.
-	let ai: AiSettingsView = { photos: 'local', recipes: 'local', cloudModel: 'gemma4:31b-cloud' };
+	let ai: AiSettingsView = {
+		recipeArt: 'matched',
+		photos: 'local',
+		recipes: 'local',
+		cloudModel: 'gemma4:31b-cloud'
+	};
 	let signedIn = false;
 	const answeredBy = (mode: AiModeView) =>
 		mode === 'cloud'
@@ -675,6 +714,17 @@ function fakeApi() {
 			text.trim()
 				? ok(sampleReceipt(text, store))
 				: Promise.resolve({ status: 'error', error: { kind: 'bad_input', detail: 'text' } }),
+		readReceiptFile: async (file: string): Promise<Result<ReceiptFileView>> => {
+			if (!file) return { status: 'error', error: { kind: 'bad_input', detail: 'file' } };
+			await new Promise((r) => setTimeout(r, 700));
+			return ok({
+				text: SAMPLE_RECEIPT_TEXT,
+				method: 'ocr',
+				ms: 142,
+				pages: 1,
+				readBy: 'this Mac'
+			});
+		},
 		importReceipt: (input: ReceiptImportInput): Promise<Result<ImportResultView>> => {
 			imported.add('a1b2c3d4e5f60718');
 			for (const l of input.lines)
@@ -1080,6 +1130,22 @@ function fakeApi() {
 			lots.push(...added);
 			shopping = shopping.filter((x) => !x.done);
 			return ok({ lots: added, items: done.map((x) => ({ ...x })) });
+		},
+		// SYNTHETIC picture picks: the word matcher's kind and the first three
+		// ingredients, after a short wait.
+		pickDishArt: async (
+			dishes: ArtDishInput[],
+			options: ArtOption[]
+		): Promise<Result<(ArtPickView | null)[]>> => {
+			await new Promise((r) => setTimeout(r, 300));
+			const known = new Set(options.map((o) => o.id));
+			return {
+				status: 'ok',
+				data: dishes.map((d) => {
+					const kind = matchDish(d.title, d.ingredients).id;
+					return known.has(kind) ? { kind, show: d.ingredients.slice(0, 3) } : null;
+				})
+			};
 		},
 		getAiSettings: (): Promise<Result<AiSettingsView>> => ok({ ...ai }),
 		setAiSettings: (input: AiSettingsView): Promise<Result<AiSettingsView>> => {

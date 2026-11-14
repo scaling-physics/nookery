@@ -15,6 +15,7 @@
 	/** The have-chip whose location is shown (lot id). */
 	let shown = $state<string | null>(null);
 
+	const ingredients = $derived([...it.have.map((h) => h.ingredient), ...it.need]);
 	const categories = $derived([...it.have.map((h) => h.lot.category), ...it.needCategories]);
 
 	function tone(l: LotView) {
@@ -32,7 +33,7 @@
 
 <li class="card" style="--i:{position}">
 	<div class="art">
-		<DishArt title={it.name} {categories} size={184} decorative />
+		<DishArt title={it.name} {categories} {ingredients} size={184} decorative />
 		{#if it.usesSoon > 0}
 			<span class="soon-badge"
 				><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"

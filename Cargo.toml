@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/store", "crates/receipt", "crates/vision", "crates/recipes", "crates/sync", "crates/llm", "crates/plan", "crates/cli", "src-tauri"]
+members = ["crates/core", "crates/store", "crates/receipt", "crates/extract", "crates/vision", "crates/recipes", "crates/sync", "crates/llm", "crates/plan", "crates/cli", "src-tauri"]
 
 [workspace.package]
 edition = "2021"
 license = "Apache-2.0"
-version = "0.1.0"
+version = "0.2.0"
 
 [workspace.dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
@@ -20,10 +20,9 @@ tempfile = "3"
 nookery-core = { path = "crates/core" }
 nookery-store = { path = "crates/store" }
 nookery-receipt = { path = "crates/receipt" }
+nookery-extract = { path = "crates/extract" }
 nookery-vision = { path = "crates/vision" }
 nookery-recipes = { path = "crates/recipes" }
-nookery-sync = { path = "crates/sync" }
-nookery-llm = { path = "crates/llm" }
 nookery-plan = { path = "crates/plan" }
 
 [profile.release]

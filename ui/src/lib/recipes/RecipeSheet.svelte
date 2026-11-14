@@ -33,6 +33,12 @@
 			? c.recipe.ingredientCategories
 			: [...c.item.have.map((h) => h.lot.category), ...c.item.needCategories]
 	);
+	// The written recipe's ingredient lines, else the idea's have + need names.
+	const ingredients = $derived(
+		c.recipe?.ingredients?.length
+			? c.recipe.ingredients
+			: [...c.item.have.map((h) => h.ingredient), ...c.item.need]
+	);
 	const meta = $derived(
 		c.recipe
 			? [
@@ -49,7 +55,7 @@
 
 <article aria-labelledby="recipe-h" class="sheet">
 	<div class="hero">
-		<DishArt {title} {categories} hero decorative />
+		<DishArt {title} {categories} {ingredients} hero decorative />
 	</div>
 	<div class="px-5 pt-1 pb-6 sm:px-8">
 		<div class="flex items-start justify-between gap-3">
